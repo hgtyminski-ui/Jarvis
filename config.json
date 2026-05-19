@@ -4,6 +4,10 @@
   "base_url": "http://127.0.0.1:1233/v1",
   "model": "local-model",
   "temperature": 0.7,
+  "voice_enabled": true,
+  "voice_id": 2,
+  "voice_rate": 150,
+  "voice_volume": 0.9,
   "system_message": "Nazywasz się Jarvis, prywatnym asystentem użytkownika. Odpowiadasz po polsku, krótko i konkretnie. Nie używaj emotikonów. Nie używaj znaków specjalnych chyba że są niezbędne do odpowiedzi.",
   "max_history_messages": 10
 }

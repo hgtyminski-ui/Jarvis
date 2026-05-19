@@ -32,5 +32,9 @@ def load_config():
 
     config.setdefault("api_key", "lm-studio")
     config.setdefault("exit_commands", ["exit", "quit", "wyjdź", "koniec", "zamknij"])
+    config.setdefault("voice_enabled", True)
+    config.setdefault("voice_id", 0)
+    config.setdefault("voice_rate", 150)
+    config.setdefault("voice_volume", 0.9)
 
     return config

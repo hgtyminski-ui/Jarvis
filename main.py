@@ -40,12 +40,18 @@ def handle_local_command(command, assistant_name, client, config, messages):
     return False
 
 
-def handle_ai_answer(answer, assistant_name):
+def handle_ai_answer(answer, assistant_name, config):
     data = parse_ai_json(answer)
     action = data.get("action")
 
     if action == "chat":
-        print(f"{assistant_name}:", data.get("response", ""))
+        response = data.get("response", "")
+        print(f"{assistant_name}:", response)
+
+        if config.get("voice_enabled", False):
+            from voice import speak
+
+            speak(response)
         return
 
     if action == "open_website":
@@ -115,7 +121,7 @@ def main():
         try:
             answer = get_ai_response(client, messages, config)
 
-            handle_ai_answer(answer, assistant_name)
+            handle_ai_answer(answer, assistant_name, config)
 
             add_assistant_message(messages, answer)
 
