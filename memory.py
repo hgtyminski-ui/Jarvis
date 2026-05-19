@@ -1,17 +1,27 @@
+from actions import load_apps
+
+
 ACTION_INSTRUCTIONS = (
     "\n\nZawsze odpowiadaj wyłącznie JSON-em. "
     'Dla zwykłej rozmowy użyj formatu: {"action": "chat", "response": "odpowiedź"}. '
     'Jeśli użytkownik chce otworzyć stronę, użyj formatu: {"action": "open_website", "target": "youtube"}. '
-    "Obsługiwane strony: youtube, google, spotify, chatgpt, steam. "
+    'Jeśli użytkownik chce otworzyć aplikację, użyj formatu: {"action": "open_app", "target": "notepad"}. '
+    "Obsługiwane strony: youtube, google, chatgpt. "
+    "Obsługiwane aplikacje są zdefiniowane w apps.json. "
     "Nie dodawaj tekstu poza JSON-em."
 )
+
+
+def get_action_instructions():
+    app_names = ", ".join(load_apps().keys()) or "brak"
+    return ACTION_INSTRUCTIONS + f" Obsługiwane aplikacje: {app_names}."
 
 
 def create_messages(config):
     return [
         {
             "role": "system",
-            "content": config["system_message"] + ACTION_INSTRUCTIONS,
+            "content": config["system_message"] + get_action_instructions(),
         }
     ]
 

@@ -1,4 +1,4 @@
-from actions import open_website, parse_ai_json
+from actions import open_app, open_website, parse_ai_json
 from config import ConfigError, load_config
 from memory import add_assistant_message, add_user_message, clear_messages, create_messages
 
@@ -54,6 +54,22 @@ def handle_ai_answer(answer, assistant_name):
             print(f"{assistant_name}: Otwieram stronę: {target}")
         else:
             print(f"{assistant_name}: Nie obsługuję tej strony.")
+        return
+
+    if action == "open_app":
+        target = str(data.get("target", "")).lower()
+
+        try:
+            result = open_app(target)
+        except Exception as e:
+            print(f"{assistant_name}: Nie udało się uruchomić aplikacji: {target}")
+            print("Błąd:", e)
+            return
+
+        if result == "opened":
+            print(f"{assistant_name}: Otwieram aplikację: {target}")
+        else:
+            print(f"{assistant_name}: Nie znam aplikacji: {target}. Dodaj ją do apps.json.")
         return
 
     print(f"{assistant_name}: Nie rozumiem akcji zwróconej przez AI.")
