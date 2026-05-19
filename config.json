@@ -8,6 +8,10 @@
   "voice_id": 2,
   "voice_rate": 150,
   "voice_volume": 0.9,
+  "tts_engine": "edge",
+  "edge_voice": "pl-PL-MarekNeural",
+  "edge_rate": "+0%",
+  "edge_volume": "+0%",
   "system_message": "Nazywasz się Jarvis, prywatnym asystentem użytkownika. Odpowiadasz po polsku, krótko i konkretnie. Nie używaj emotikonów. Nie używaj znaków specjalnych chyba że są niezbędne do odpowiedzi.",
   "max_history_messages": 10
 }

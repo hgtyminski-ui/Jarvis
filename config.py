@@ -36,5 +36,9 @@ def load_config():
     config.setdefault("voice_id", 0)
     config.setdefault("voice_rate", 150)
     config.setdefault("voice_volume", 0.9)
+    config.setdefault("tts_engine", "edge")
+    config.setdefault("edge_voice", "pl-PL-MarekNeural")
+    config.setdefault("edge_rate", "+0%")
+    config.setdefault("edge_volume", "+0%")
 
     return config
