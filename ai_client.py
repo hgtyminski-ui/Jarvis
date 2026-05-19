@@ -16,3 +16,18 @@ def get_ai_response(client, messages, config):
     )
 
     return response.choices[0].message.content
+
+
+def check_connection(client, config):
+    test_messages = [
+        {
+            "role": "user",
+            "content": "Test połączenia. Odpowiedz jednym słowem: OK",
+        }
+    ]
+
+    client.chat.completions.create(
+        model=config["model"],
+        messages=test_messages,
+        temperature=0,
+    )
