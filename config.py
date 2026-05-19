@@ -40,5 +40,11 @@ def load_config():
     config.setdefault("edge_voice", "pl-PL-MarekNeural")
     config.setdefault("edge_rate", "+0%")
     config.setdefault("edge_volume", "+0%")
+    config.setdefault("microphone_device", 1)
+    config.setdefault("sample_rate", 48000)
+    config.setdefault("record_seconds", 7)
+    config.setdefault("whisper_model", "small")
+    config.setdefault("whisper_device", "cuda")
+    config.setdefault("whisper_compute_type", "float16")
 
     return config

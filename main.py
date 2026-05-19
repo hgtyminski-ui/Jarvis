@@ -9,6 +9,7 @@ def show_help():
     print("/exit - kończy program")
     print("/status - sprawdza połączenie z LM Studio")
     print("/clear - czyści historię rozmowy z RAM")
+    print("/listen - nagrywa krótką wiadomość z mikrofonu")
 
 
 def handle_local_command(command, assistant_name, client, config, messages):
@@ -99,6 +100,16 @@ def main():
 
     while True:
         user_input = input("Ty: ")
+
+        if user_input.strip().lower() == "/listen":
+            from speech_input import listen_once
+
+            spoken_text = listen_once()
+            if not spoken_text:
+                continue
+
+            print("Ty:", spoken_text)
+            user_input = spoken_text
 
         if user_input.startswith("/"):
             should_exit = handle_local_command(
