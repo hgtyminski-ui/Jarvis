@@ -1,3 +1,4 @@
+from actions import open_website, parse_ai_json
 from config import ConfigError, load_config
 from memory import add_assistant_message, add_user_message, clear_messages, create_messages
 
@@ -37,6 +38,25 @@ def handle_local_command(command, assistant_name, client, config, messages):
 
     print("Nieznana komenda lokalna. Wpisz /help, aby zobaczyć dostępne komendy.")
     return False
+
+
+def handle_ai_answer(answer, assistant_name):
+    data = parse_ai_json(answer)
+    action = data.get("action")
+
+    if action == "chat":
+        print(f"{assistant_name}:", data.get("response", ""))
+        return
+
+    if action == "open_website":
+        target = str(data.get("target", "")).lower()
+        if open_website(target):
+            print(f"{assistant_name}: Otwieram stronę: {target}")
+        else:
+            print(f"{assistant_name}: Nie obsługuję tej strony.")
+        return
+
+    print(f"{assistant_name}: Nie rozumiem akcji zwróconej przez AI.")
 
 
 def main():
@@ -79,7 +99,7 @@ def main():
         try:
             answer = get_ai_response(client, messages, config)
 
-            print(f"{assistant_name}:", answer)
+            handle_ai_answer(answer, assistant_name)
 
             add_assistant_message(messages, answer)
 
