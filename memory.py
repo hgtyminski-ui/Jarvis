@@ -1,11 +1,8 @@
-from config import SYSTEM_MESSAGE
-
-
-def create_messages():
+def create_messages(config):
     return [
         {
             "role": "system",
-            "content": SYSTEM_MESSAGE,
+            "content": config["system_message"],
         }
     ]
 

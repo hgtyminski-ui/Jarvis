@@ -1,20 +1,18 @@
 from openai import OpenAI
 
-from config import API_KEY, BASE_URL, MODEL, TEMPERATURE
 
-
-def create_client():
+def create_client(config):
     return OpenAI(
-        base_url=BASE_URL,
-        api_key=API_KEY,
+        base_url=config["base_url"],
+        api_key=config["api_key"],
     )
 
 
-def get_ai_response(client, messages):
+def get_ai_response(client, messages, config):
     response = client.chat.completions.create(
-        model=MODEL,
+        model=config["model"],
         messages=messages,
-        temperature=TEMPERATURE,
+        temperature=config["temperature"],
     )
 
     return response.choices[0].message.content
