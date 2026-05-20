@@ -91,7 +91,6 @@ def listen_once(duration=None):
             return None
 
         write(str(INPUT_FILE), used_sample_rate, recording)
-        print("Nagranie zakończone, rozpoznaję...")
 
         text = transcribe_with_whisper(config)
         if not text:
