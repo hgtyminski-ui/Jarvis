@@ -4,18 +4,7 @@ from config import load_config
 
 
 INPUT_FILE = Path(__file__).with_name("input.wav")
-FALLBACK_SAMPLE_RATES = [48000, 44100, 16000]
 WHISPER_MODELS = {}
-
-
-def get_sample_rates(config):
-    sample_rates = [config.get("sample_rate", 48000)]
-
-    for sample_rate in FALLBACK_SAMPLE_RATES:
-        if sample_rate not in sample_rates:
-            sample_rates.append(sample_rate)
-
-    return sample_rates
 
 
 def record_audio(sd, sample_rate, microphone_device, duration):
@@ -46,20 +35,21 @@ def get_whisper_model(model_name, device, compute_type):
 
 
 def transcribe_with_whisper(config):
-    model_name = config.get("whisper_model", "small")
-    device = config.get("whisper_device", "cuda")
-    compute_type = config.get("whisper_compute_type", "float16")
+    model_name = config.get("whisper_model", "base")
+    device = config.get("whisper_device", "cpu")
+    compute_type = config.get("whisper_compute_type", "int8")
 
-    try:
-        model = get_whisper_model(model_name, device, compute_type)
-        segments, _ = model.transcribe(str(INPUT_FILE), language="pl")
-    except Exception as e:
-        print(f"Whisper nie zadziałał na {device}/{compute_type}: {e}")
-        print("Próbuję fallback: cpu/int8...")
-        model = get_whisper_model(model_name, "cpu", "int8")
-        segments, _ = model.transcribe(str(INPUT_FILE), language="pl")
+    model = get_whisper_model(model_name, device, compute_type)
+    segments, _ = model.transcribe(
+        str(INPUT_FILE),
+        language="pl",
+        beam_size=5,
+        vad_filter=True,
+        vad_parameters={"min_silence_duration_ms": 500},
+    )
 
-    return " ".join(segment.text.strip() for segment in segments).strip()
+    text = " ".join(segment.text.strip() for segment in segments)
+    return " ".join(text.split())
 
 
 def listen_once(duration=None):
@@ -70,37 +60,25 @@ def listen_once(duration=None):
         config = load_config()
         microphone_device = config.get("microphone_device")
         record_seconds = duration or config.get("record_seconds", 7)
+        sample_rate = config.get("sample_rate", 48000)
 
-        recording = None
-        used_sample_rate = None
-        last_error = None
-
-        for sample_rate in get_sample_rates(config):
-            try:
-                recording = record_audio(sd, sample_rate, microphone_device, record_seconds)
-                used_sample_rate = sample_rate
-                break
-            except Exception as e:
-                last_error = e
-
+        recording = record_audio(sd, sample_rate, microphone_device, record_seconds)
         if recording is None:
-            print("Nie udało się nagrać audio z mikrofonu.")
-            print("Uruchom: python mic_test.py i sprawdź poprawny numer mikrofonu.")
-            if last_error:
-                print("Ostatni błąd:", last_error)
+            print("Nie udalo sie nagrac audio z mikrofonu.")
+            print("Uruchom: python mic_test.py i sprawdz poprawny numer mikrofonu.")
             return None
 
-        write(str(INPUT_FILE), used_sample_rate, recording)
+        write(str(INPUT_FILE), sample_rate, recording)
 
         text = transcribe_with_whisper(config)
         if not text:
-            print("Nie rozpoznano tekstu. Spróbuj powiedzieć coś głośniej albo sprawdź mikrofon.")
+            print("Nie rozpoznano mowy.")
             return None
 
         return text
 
     except Exception as e:
-        print("Błąd nagrywania lub rozpoznawania mowy:", e)
-        print("Uruchom: python mic_test.py i sprawdź mikrofon oraz ustawienia w config.json.")
+        print("Blad nagrywania lub rozpoznawania mowy:", e)
+        print("Uruchom: python mic_test.py i sprawdz mikrofon oraz ustawienia w config.json.")
 
     return None
