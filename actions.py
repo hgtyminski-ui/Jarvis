@@ -4,6 +4,8 @@ import subprocess
 import webbrowser
 from pathlib import Path
 
+from text_utils import normalize_text
+
 
 WEBSITES = {
     "youtube": "https://www.youtube.com",
@@ -12,6 +14,7 @@ WEBSITES = {
 }
 
 APPS_PATH = Path(__file__).with_name("apps.json")
+ALIASES_PATH = Path(__file__).with_name("aliases.json")
 
 
 def parse_ai_json(text):
@@ -38,8 +41,42 @@ def parse_ai_json(text):
     }
 
 
+def load_aliases():
+    if not ALIASES_PATH.exists():
+        return {}
+
+    try:
+        with ALIASES_PATH.open("r", encoding="utf-8") as aliases_file:
+            aliases = json.load(aliases_file)
+    except json.JSONDecodeError:
+        return {}
+
+    if not isinstance(aliases, dict):
+        return {}
+
+    return {
+        normalize_text(target): [
+            normalize_text(alias)
+            for alias in alias_list
+            if isinstance(alias, str) and alias.strip()
+        ]
+        for target, alias_list in aliases.items()
+        if isinstance(target, str) and isinstance(alias_list, list)
+    }
+
+
+def resolve_alias(target):
+    target = normalize_text(target)
+
+    for real_target, aliases in load_aliases().items():
+        if target == real_target or target in aliases:
+            return real_target
+
+    return target
+
+
 def open_website(target):
-    target = str(target).lower()
+    target = resolve_alias(target)
     url = WEBSITES.get(target)
     if not url:
         return False
@@ -79,7 +116,7 @@ def load_apps():
 
 
 def open_app(target):
-    target = str(target).lower()
+    target = resolve_alias(target)
     apps = load_apps()
     command = apps.get(target)
 

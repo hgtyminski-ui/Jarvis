@@ -1,6 +1,7 @@
-from actions import open_app, open_website, parse_ai_json
+from actions import open_app, open_website, parse_ai_json, resolve_alias
 from config import ConfigError, load_config
 from memory import add_assistant_message, add_user_message, clear_messages, create_messages
+from text_utils import normalize_text
 
 
 def show_help():
@@ -56,7 +57,7 @@ def handle_ai_answer(answer, assistant_name, config):
         return
 
     if action == "open_website":
-        target = str(data.get("target", "")).lower()
+        target = resolve_alias(data.get("target", ""))
         if open_website(target):
             print(f"{assistant_name}: Otwieram stronę: {target}")
         else:
@@ -64,7 +65,7 @@ def handle_ai_answer(answer, assistant_name, config):
         return
 
     if action == "open_app":
-        target = str(data.get("target", "")).lower()
+        target = resolve_alias(data.get("target", ""))
 
         try:
             result = open_app(target)
@@ -123,11 +124,16 @@ def main():
                 break
             continue
 
-        if user_input.lower() in config["exit_commands"]:
+        normalized_user_input = normalize_text(user_input)
+        normalized_exit_commands = [
+            normalize_text(command) for command in config["exit_commands"]
+        ]
+
+        if normalized_user_input in normalized_exit_commands:
             print(f"{assistant_name}: Wyłączam się. Do zobaczenia!")
             break
 
-        add_user_message(messages, user_input)
+        add_user_message(messages, normalized_user_input)
 
         try:
             answer = get_ai_response(client, messages, config)
