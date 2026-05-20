@@ -1,4 +1,13 @@
-from actions import close_app, open_app, open_website, parse_ai_json, resolve_alias
+import json
+
+from actions import (
+    close_app,
+    open_app,
+    open_website,
+    parse_ai_json,
+    parse_local_action,
+    resolve_alias,
+)
 from config import ConfigError, load_config
 from memory import add_assistant_message, add_user_message, clear_messages, create_messages
 from text_utils import normalize_text
@@ -11,6 +20,7 @@ def show_help():
     print("/status - sprawdza połączenie z LM Studio")
     print("/clear - czyści historię rozmowy z RAM")
     print("/listen - nagrywa krótką wiadomość z mikrofonu")
+    print("/close <aplikacja> - zamyka aplikację z processes.json")
 
 
 def handle_local_command(command, assistant_name, client, config, messages):
@@ -36,6 +46,11 @@ def handle_local_command(command, assistant_name, client, config, messages):
     if command == "/clear":
         clear_messages(messages, config)
         print("Historia rozmowy w RAM została wyczyszczona.")
+        return False
+
+    local_action = parse_local_action(command.lstrip("/"))
+    if local_action:
+        handle_ai_answer(json.dumps(local_action), assistant_name, config)
         return False
 
     print("Nieznana komenda lokalna. Wpisz /help, aby zobaczyć dostępne komendy.")
@@ -92,6 +107,8 @@ def handle_ai_answer(answer, assistant_name, config):
 
         if result == "closed":
             print(f"{assistant_name}: Zamykam {target}.")
+        elif result == "not_running":
+            print(f"{assistant_name}: Nie znalazłem uruchomionego procesu dla: {target}.")
         else:
             print(f"{assistant_name}: Nie znam aplikacji: {target}. Dodaj ją do processes.json.")
         return
@@ -148,6 +165,11 @@ def main():
         if normalized_user_input in normalized_exit_commands:
             print(f"{assistant_name}: Wyłączam się. Do zobaczenia!")
             break
+
+        local_action = parse_local_action(user_input)
+        if local_action:
+            handle_ai_answer(json.dumps(local_action), assistant_name, config)
+            continue
 
         add_user_message(messages, normalized_user_input)
 

@@ -13,6 +13,9 @@ WEBSITES = {
     "chatgpt": "https://chatgpt.com",
 }
 
+OPEN_COMMANDS = ["otworz", "odpal", "wlacz", "open"]
+CLOSE_COMMANDS = ["zamknij", "wylacz", "close"]
+
 APPS_PATH = Path(__file__).with_name("apps.json")
 ALIASES_PATH = Path(__file__).with_name("aliases.json")
 PROCESSES_PATH = Path(__file__).with_name("processes.json")
@@ -74,6 +77,52 @@ def resolve_alias(target):
             return real_target
 
     return target
+
+
+def contains_phrase(text, phrase):
+    return f" {phrase} " in f" {text} "
+
+
+def has_command(text, commands):
+    return any(contains_phrase(text, command) for command in commands)
+
+
+def target_names(target, aliases):
+    names = [target]
+    names.extend(aliases.get(target, []))
+    return sorted(set(names), key=len, reverse=True)
+
+
+def find_target(text, targets):
+    aliases = load_aliases()
+
+    for target in sorted(targets, key=len, reverse=True):
+        target = normalize_text(target)
+        for name in target_names(target, aliases):
+            if contains_phrase(text, name):
+                return target
+
+    return None
+
+
+def parse_local_action(text):
+    text = normalize_text(text)
+
+    if has_command(text, OPEN_COMMANDS):
+        website = find_target(text, WEBSITES.keys())
+        if website:
+            return {"action": "open_website", "target": website}
+
+        app = find_target(text, load_apps().keys())
+        if app:
+            return {"action": "open_app", "target": app}
+
+    if has_command(text, CLOSE_COMMANDS):
+        process = find_target(text, load_processes().keys())
+        if process:
+            return {"action": "close_app", "target": process}
+
+    return None
 
 
 def open_website(target):
@@ -166,10 +215,14 @@ def close_app(target):
     if not process_name:
         return "unknown"
 
-    subprocess.run(
+    result = subprocess.run(
         ["taskkill", "/IM", process_name, "/F"],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+
+    if result.returncode != 0:
+        return "not_running"
+
     return "closed"
