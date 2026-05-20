@@ -126,6 +126,47 @@ def handle_ai_answer(answer, assistant_name, config):
     print(f"{assistant_name}: Nie rozumiem akcji zwróconej przez AI.")
 
 
+def process_user_text(user_input, assistant_name, client, config, messages):
+    if user_input.startswith("/"):
+        return handle_local_command(
+            user_input.strip().lower(),
+            assistant_name,
+            client,
+            config,
+            messages,
+        )
+
+    normalized_user_input = normalize_text(user_input)
+    normalized_exit_commands = [
+        normalize_text(command) for command in config["exit_commands"]
+    ]
+
+    if normalized_user_input in normalized_exit_commands:
+        print(f"{assistant_name}: Wyłączam się. Do zobaczenia!")
+        return True
+
+    local_action = parse_local_action(user_input)
+    if local_action:
+        handle_ai_answer(json.dumps(local_action), assistant_name, config)
+        return False
+
+    add_user_message(messages, normalized_user_input)
+
+    try:
+        from ai_client import get_ai_response
+
+        answer = get_ai_response(client, messages, config)
+
+        handle_ai_answer(answer, assistant_name, config)
+
+        add_assistant_message(messages, answer)
+
+    except Exception as e:
+        print("Błąd:", e)
+
+    return False
+
+
 def main():
     try:
         config = load_config()
@@ -155,43 +196,8 @@ def main():
             print("Ty:", spoken_text)
             user_input = spoken_text
 
-        if user_input.startswith("/"):
-            should_exit = handle_local_command(
-                user_input.strip().lower(),
-                assistant_name,
-                client,
-                config,
-                messages,
-            )
-            if should_exit:
-                break
-            continue
-
-        normalized_user_input = normalize_text(user_input)
-        normalized_exit_commands = [
-            normalize_text(command) for command in config["exit_commands"]
-        ]
-
-        if normalized_user_input in normalized_exit_commands:
-            print(f"{assistant_name}: Wyłączam się. Do zobaczenia!")
+        if process_user_text(user_input, assistant_name, client, config, messages):
             break
-
-        local_action = parse_local_action(user_input)
-        if local_action:
-            handle_ai_answer(json.dumps(local_action), assistant_name, config)
-            continue
-
-        add_user_message(messages, normalized_user_input)
-
-        try:
-            answer = get_ai_response(client, messages, config)
-
-            handle_ai_answer(answer, assistant_name, config)
-
-            add_assistant_message(messages, answer)
-
-        except Exception as e:
-            print("Błąd:", e)
 
 
 if __name__ == "__main__":

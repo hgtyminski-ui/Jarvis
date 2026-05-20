@@ -1,0 +1,13 @@
+{
+  "notepad": "notepad.exe",
+  "calculator": "CalculatorApp.exe",
+  "vscode": "Code.exe",
+  "discord": "Discord.exe",
+  "comet": "comet.exe",
+  "przegladarka": "comet.exe",
+  "spotify": "Spotify.exe",
+  "netflix": "Netflix.exe",
+  "teams": "ms-teams.exe",
+  "steam": "steam.exe",
+  "whatsapp": "WhatsApp.exe"
+}

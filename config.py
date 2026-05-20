@@ -1,8 +1,9 @@
 import json
-from pathlib import Path
+
+from path_utils import get_base_path
 
 
-CONFIG_PATH = Path(__file__).with_name("config.json")
+CONFIG_PATH = get_base_path() / "config.json"
 REQUIRED_SETTINGS = ["assistant_name", "base_url", "model", "temperature", "system_message"]
 
 

@@ -5,6 +5,7 @@ import webbrowser
 from pathlib import Path
 from urllib.parse import quote
 
+from path_utils import get_base_path
 from text_utils import normalize_text
 
 
@@ -23,9 +24,9 @@ SPOTIFY_SEARCH_COMMANDS = [
     "wyszukaj na spotify",
 ]
 
-APPS_PATH = Path(__file__).with_name("apps.json")
-ALIASES_PATH = Path(__file__).with_name("aliases.json")
-PROCESSES_PATH = Path(__file__).with_name("processes.json")
+APPS_PATH = get_base_path() / "apps.json"
+ALIASES_PATH = get_base_path() / "aliases.json"
+PROCESSES_PATH = get_base_path() / "processes.json"
 
 
 def parse_ai_json(text):

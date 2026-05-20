@@ -1,0 +1,18 @@
+{
+  "notepad": ["notepad", "notatnik", "notes", "edytor tekstu"],
+  "calculator": ["calculator", "calc", "kalkulator", "licznik"],
+  "vscode": ["vscode", "vs code", "visual studio code", "kod", "edytor kodu"],
+  "anno1404": ["anno", "anno 1404", "anno history edition", "anno czternascie zero cztery"],
+  "discord": ["discord", "dc", "dyskord", "komunikator"],
+  "comet": ["comet", "perplexity comet", "przegladarka comet", "comet browser"],
+  "przegladarka": ["przegladarka", "browser", "internet", "comet browser", "otworz internet"],
+  "spotify": ["spotify", "spotifaj", "muzyka", "odtwarzacz muzyki"],
+  "netflix": ["netflix", "netfliks", "film", "filmy", "serial", "seriale"],
+  "teams": ["teams", "microsoft teams", "teamsy", "lekcje", "spotkanie"],
+  "steam": ["steam", "stim", "gry", "launcher steam"],
+  "forza horizon 5": ["forza", "forza horizon", "forza horizon 5", "forza 5", "fh5"],
+  "phasmophobia": ["phasmophobia", "fazmo", "phasma", "fasmofobia", "horror"],
+  "whatsapp": ["whatsapp", "whats app", "łatsapp", "czat", "wiadomosci"],
+  "settings": ["settings", "ustawienia", "opcje", "ustawienia windows", "panel ustawien"],
+  "youtube": ["youtube", "jutub", "yt"]
+}

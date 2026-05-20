@@ -4,3 +4,5 @@ playsound==1.2.2
 sounddevice
 scipy
 faster-whisper
+pyinstaller
+customtkinter
