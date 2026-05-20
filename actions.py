@@ -15,6 +15,7 @@ WEBSITES = {
 
 APPS_PATH = Path(__file__).with_name("apps.json")
 ALIASES_PATH = Path(__file__).with_name("aliases.json")
+PROCESSES_PATH = Path(__file__).with_name("processes.json")
 
 
 def parse_ai_json(text):
@@ -115,6 +116,26 @@ def load_apps():
     }
 
 
+def load_processes():
+    if not PROCESSES_PATH.exists():
+        return {}
+
+    try:
+        with PROCESSES_PATH.open("r", encoding="utf-8") as processes_file:
+            processes = json.load(processes_file)
+    except json.JSONDecodeError:
+        return {}
+
+    if not isinstance(processes, dict):
+        return {}
+
+    return {
+        normalize_text(name): process_name
+        for name, process_name in processes.items()
+        if isinstance(name, str) and isinstance(process_name, str) and process_name
+    }
+
+
 def open_app(target):
     target = resolve_alias(target)
     apps = load_apps()
@@ -135,3 +156,20 @@ def open_app(target):
         stderr=subprocess.DEVNULL,
     )
     return "opened"
+
+
+def close_app(target):
+    target = resolve_alias(target)
+    processes = load_processes()
+    process_name = processes.get(target)
+
+    if not process_name:
+        return "unknown"
+
+    subprocess.run(
+        ["taskkill", "/IM", process_name, "/F"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return "closed"

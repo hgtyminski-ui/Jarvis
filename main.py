@@ -1,4 +1,4 @@
-from actions import open_app, open_website, parse_ai_json, resolve_alias
+from actions import close_app, open_app, open_website, parse_ai_json, resolve_alias
 from config import ConfigError, load_config
 from memory import add_assistant_message, add_user_message, clear_messages, create_messages
 from text_utils import normalize_text
@@ -78,6 +78,22 @@ def handle_ai_answer(answer, assistant_name, config):
             print(f"{assistant_name}: Otwieram aplikację: {target}")
         else:
             print(f"{assistant_name}: Nie znam aplikacji: {target}. Dodaj ją do apps.json.")
+        return
+
+    if action == "close_app":
+        target = resolve_alias(data.get("target", ""))
+
+        try:
+            result = close_app(target)
+        except Exception as e:
+            print(f"{assistant_name}: Nie udało się zamknąć aplikacji: {target}")
+            print("Błąd:", e)
+            return
+
+        if result == "closed":
+            print(f"{assistant_name}: Zamykam {target}.")
+        else:
+            print(f"{assistant_name}: Nie znam aplikacji: {target}. Dodaj ją do processes.json.")
         return
 
     print(f"{assistant_name}: Nie rozumiem akcji zwróconej przez AI.")
