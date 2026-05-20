@@ -3,6 +3,7 @@ import os
 import subprocess
 import webbrowser
 from pathlib import Path
+from urllib.parse import quote
 
 from text_utils import normalize_text
 
@@ -15,6 +16,12 @@ WEBSITES = {
 
 OPEN_COMMANDS = ["otworz", "odpal", "wlacz", "open"]
 CLOSE_COMMANDS = ["zamknij", "wylacz", "close"]
+SPOTIFY_SEARCH_COMMANDS = [
+    "pusc",
+    "odtworz",
+    "znajdz na spotify",
+    "wyszukaj na spotify",
+]
 
 APPS_PATH = Path(__file__).with_name("apps.json")
 ALIASES_PATH = Path(__file__).with_name("aliases.json")
@@ -105,8 +112,23 @@ def find_target(text, targets):
     return None
 
 
+def parse_spotify_search(text):
+    for command in sorted(SPOTIFY_SEARCH_COMMANDS, key=len, reverse=True):
+        prefix = f"{command} "
+        if text.startswith(prefix):
+            query = text[len(prefix) :].strip()
+            if query:
+                return {"action": "spotify_search", "query": query}
+
+    return None
+
+
 def parse_local_action(text):
     text = normalize_text(text)
+
+    spotify_action = parse_spotify_search(text)
+    if spotify_action:
+        return spotify_action
 
     if has_command(text, OPEN_COMMANDS):
         website = find_target(text, WEBSITES.keys())
@@ -226,3 +248,12 @@ def close_app(target):
         return "not_running"
 
     return "closed"
+
+
+def spotify_search(query):
+    query = normalize_text(query)
+    if not query:
+        return False
+
+    os.startfile(f"spotify:search:{quote(query)}")
+    return True

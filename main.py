@@ -7,6 +7,7 @@ from actions import (
     parse_ai_json,
     parse_local_action,
     resolve_alias,
+    spotify_search,
 )
 from config import ConfigError, load_config
 from memory import add_assistant_message, add_user_message, clear_messages, create_messages
@@ -111,6 +112,15 @@ def handle_ai_answer(answer, assistant_name, config):
             print(f"{assistant_name}: Nie znalazłem uruchomionego procesu dla: {target}.")
         else:
             print(f"{assistant_name}: Nie znam aplikacji: {target}. Dodaj ją do processes.json.")
+        return
+
+    if action == "spotify_search":
+        query = data.get("query", "")
+
+        if spotify_search(query):
+            print(f"{assistant_name}: Szukam w Spotify: {query}")
+        else:
+            print(f"{assistant_name}: Nie podano czego szukać w Spotify.")
         return
 
     print(f"{assistant_name}: Nie rozumiem akcji zwróconej przez AI.")

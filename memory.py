@@ -7,6 +7,7 @@ ACTION_INSTRUCTIONS = (
     'Jeśli użytkownik chce otworzyć stronę, użyj formatu: {"action": "open_website", "target": "youtube"}. '
     'Jeśli użytkownik chce otworzyć aplikację, użyj formatu: {"action": "open_app", "target": "notepad"}. '
     'Jeśli użytkownik chce zamknąć aplikację, użyj formatu: {"action": "close_app", "target": "spotify"}. '
+    'Jeśli użytkownik chce puścić, odtworzyć albo wyszukać coś na Spotify, użyj formatu: {"action": "spotify_search", "query": "lose yourself eminem"}. '
     "Obsługiwane strony: youtube, google, chatgpt. "
     "Obsługiwane aplikacje są zdefiniowane w apps.json. "
     "Procesy do zamykania są zdefiniowane w processes.json. "
