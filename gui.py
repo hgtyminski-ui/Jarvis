@@ -8,7 +8,15 @@ import tkinter as tk
 
 import customtkinter as ctk
 
-from actions import parse_ai_json, parse_local_action
+from actions import (
+    close_app,
+    is_app_running,
+    load_apps,
+    load_processes,
+    open_app,
+    parse_ai_json,
+    parse_local_action,
+)
 from ai_client import create_client
 from config import ConfigError, load_config
 from memory import add_assistant_message, add_user_message, create_messages
@@ -25,6 +33,10 @@ PANEL = "#0b111a"
 PANEL_2 = "#08131d"
 CYAN = "#00d9ff"
 BLUE = "#1b70ff"
+GREEN = "#00a864"
+GREEN_HOVER = "#00c777"
+RED = "#c3223a"
+RED_HOVER = "#e0334d"
 TEXT = "#d9f7ff"
 MUTED = "#6f95a3"
 LINE = "#0c5a78"
@@ -49,8 +61,10 @@ class JarvisGUI(ctk.CTk):
         self.is_busy = False
         self.is_recording = False
         self.is_fullscreen = False
+        self.apps_panel_visible = False
         self.pulse_phase = 0
         self.system_labels = {}
+        self.app_action_buttons = {}
 
         self.bind("<F11>", self.toggle_fullscreen)
         self.bind("<Escape>", self.exit_fullscreen)
@@ -223,6 +237,7 @@ class JarvisGUI(ctk.CTk):
 
     def build_quick_actions(self, parent):
         parent.grid_columnconfigure(0, weight=1)
+        parent.grid_rowconfigure(9, weight=1)
 
         ctk.CTkLabel(
             parent,
@@ -248,12 +263,137 @@ class JarvisGUI(ctk.CTk):
             )
             button.grid(row=row, column=0, padx=14, pady=5, sticky="ew")
 
+        self.apps_toggle_button = self.create_action_button(
+            parent,
+            "Aplikacje",
+            self.toggle_apps_panel,
+            fg_color="#082a3a",
+            hover_color="#0d4964",
+        )
+        self.apps_toggle_button.grid(row=8, column=0, padx=14, pady=(16, 5), sticky="ew")
+
+        self.apps_container = ctk.CTkScrollableFrame(
+            parent,
+            fg_color="#07101a",
+            border_width=1,
+            border_color=LINE,
+            corner_radius=8,
+            height=260,
+            scrollbar_button_color="#0d4964",
+            scrollbar_button_hover_color=CYAN,
+        )
+        self.apps_container.grid_columnconfigure(0, weight=1)
+        self.refresh_apps_list()
+
         ctk.CTkLabel(
             parent,
             text="LOCAL COMMAND GRID",
             text_color=MUTED,
             font=ctk.CTkFont(size=11),
-        ).grid(row=8, column=0, padx=14, pady=(18, 0), sticky="s")
+        ).grid(row=10, column=0, padx=14, pady=(18, 0), sticky="s")
+
+    def toggle_apps_panel(self):
+        self.apps_panel_visible = not self.apps_panel_visible
+
+        if self.apps_panel_visible:
+            self.apps_container.grid(row=9, column=0, padx=14, pady=(0, 6), sticky="nsew")
+            self.refresh_apps_list()
+        else:
+            self.apps_container.grid_remove()
+
+    def refresh_apps_list(self):
+        if not hasattr(self, "apps_container"):
+            return
+
+        for widget in self.apps_container.winfo_children():
+            widget.destroy()
+
+        self.app_action_buttons = {}
+        apps = load_apps()
+        processes = load_processes()
+
+        if not apps:
+            ctk.CTkLabel(
+                self.apps_container,
+                text="Brak aplikacji",
+                text_color=MUTED,
+                font=ctk.CTkFont(size=12),
+            ).grid(row=0, column=0, padx=10, pady=10, sticky="ew")
+            return
+
+        for row, app_name in enumerate(sorted(apps.keys())):
+            has_process = normalize_text(app_name) in processes
+            running = is_app_running(app_name) if has_process else False
+            action_text = "Zamknij" if running else "Otwórz"
+            fg_color = RED if running else GREEN
+            hover_color = RED_HOVER if running else GREEN_HOVER
+            action = "close" if running else "open"
+
+            app_row = ctk.CTkFrame(self.apps_container, fg_color="#050b12", corner_radius=6)
+            app_row.grid(row=row, column=0, padx=6, pady=4, sticky="ew")
+            app_row.grid_columnconfigure(0, weight=1)
+
+            ctk.CTkLabel(
+                app_row,
+                text=app_name,
+                text_color=TEXT,
+                anchor="w",
+                font=ctk.CTkFont(size=12, weight="bold"),
+            ).grid(row=0, column=0, padx=(10, 6), pady=8, sticky="ew")
+
+            button = ctk.CTkButton(
+                app_row,
+                text=action_text,
+                command=lambda target=app_name, action=action: self.run_app_action(target, action),
+                width=76,
+                height=28,
+                fg_color=fg_color,
+                hover_color=hover_color,
+                text_color="#041014",
+                border_width=1,
+                border_color=CYAN,
+                corner_radius=6,
+                font=ctk.CTkFont(size=11, weight="bold"),
+            )
+            button.grid(row=0, column=1, padx=(0, 8), pady=7, sticky="e")
+            self.app_action_buttons[app_name] = button
+
+    def run_app_action(self, target, action):
+        button = self.app_action_buttons.get(target)
+        if button:
+            button.configure(state="disabled")
+
+        self.set_status("Wykonuję")
+        thread = threading.Thread(
+            target=self.run_app_action_worker,
+            args=(target, action),
+            daemon=True,
+        )
+        thread.start()
+
+    def run_app_action_worker(self, target, action):
+        try:
+            if action == "close":
+                result = close_app(target)
+                if result == "closed":
+                    message = f"{self.assistant_name}: Zamykam {target}."
+                elif result == "not_running":
+                    message = f"{self.assistant_name}: Nie znalazłem uruchomionego procesu dla: {target}."
+                else:
+                    message = f"{self.assistant_name}: Nie znam aplikacji: {target}. Dodaj ją do processes.json."
+            else:
+                result = open_app(target)
+                if result == "opened":
+                    message = f"{self.assistant_name}: Otwieram aplikację: {target}"
+                else:
+                    message = f"{self.assistant_name}: Nie znam aplikacji: {target}. Dodaj ją do apps.json."
+
+            self.append_from_thread(message)
+        except Exception as e:
+            self.append_from_thread(f"Błąd: {e}")
+        finally:
+            self.after(0, lambda: self.set_status("Gotowy"))
+            self.after(1000, self.refresh_apps_list)
 
     def build_center(self, parent):
         core_frame = ctk.CTkFrame(parent, fg_color=PANEL_2, corner_radius=8)

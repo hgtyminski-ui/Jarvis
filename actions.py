@@ -251,6 +251,30 @@ def close_app(target):
     return "closed"
 
 
+def is_app_running(target):
+    target = resolve_alias(target)
+    processes = load_processes()
+    process_name = processes.get(target)
+
+    if not process_name:
+        return False
+
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    result = subprocess.run(
+        ["tasklist", "/FI", f"IMAGENAME eq {process_name}", "/NH"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        creationflags=creationflags,
+    )
+
+    if result.returncode != 0:
+        return False
+
+    return process_name.lower() in result.stdout.lower()
+
+
 def spotify_search(query):
     query = normalize_text(query)
     if not query:
