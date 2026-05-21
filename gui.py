@@ -4,10 +4,11 @@ import threading
 
 import customtkinter as ctk
 
+from actions import parse_ai_json, parse_local_action
 from ai_client import create_client
 from config import ConfigError, load_config
-from main import process_user_text
-from memory import create_messages
+from memory import add_assistant_message, add_user_message, create_messages
+from text_utils import normalize_text
 
 
 class JarvisGUI(ctk.CTk):
@@ -196,16 +197,9 @@ class JarvisGUI(ctk.CTk):
 
     def run_text_worker(self, user_text):
         try:
-            should_exit, output = self.capture_output(
-                lambda: process_user_text(
-                    user_text,
-                    self.assistant_name,
-                    self.client,
-                    self.config,
-                    self.messages,
-                )
-            )
+            should_exit, output, tts_text = self.process_user_text_for_gui(user_text)
             self.append_from_thread(output)
+            self.speak_in_background(tts_text)
 
             if should_exit:
                 self.after(300, self.destroy)
@@ -263,20 +257,96 @@ class JarvisGUI(ctk.CTk):
             status = "Wykonuję" if self.is_local_action(spoken_text) else "Myślę"
             self.set_status_from_thread(status)
 
-            _should_exit, output = self.capture_output(
-                lambda: process_user_text(
-                    spoken_text,
+            _should_exit, output, tts_text = self.process_user_text_for_gui(spoken_text)
+            self.append_from_thread(output)
+            self.speak_in_background(tts_text)
+        except Exception as e:
+            self.append_from_thread(f"Błąd: {e}")
+        finally:
+            self.after(0, self.finish_work)
+
+    def process_user_text_for_gui(self, user_input):
+        if user_input.startswith("/"):
+            from main import handle_local_command
+
+            should_exit, output = self.capture_output(
+                lambda: handle_local_command(
+                    user_input.strip().lower(),
                     self.assistant_name,
                     self.client,
                     self.config,
                     self.messages,
                 )
             )
-            self.append_from_thread(output)
+            return should_exit, output, None
+
+        normalized_user_input = normalize_text(user_input)
+        normalized_exit_commands = [
+            normalize_text(command) for command in self.config["exit_commands"]
+        ]
+
+        if normalized_user_input in normalized_exit_commands:
+            return True, f"{self.assistant_name}: Wyłączam się. Do zobaczenia!", None
+
+        local_action = parse_local_action(user_input)
+        if local_action:
+            import json
+            from main import handle_ai_answer
+
+            _result, output = self.capture_output(
+                lambda: handle_ai_answer(
+                    json.dumps(local_action),
+                    self.assistant_name,
+                    self.config,
+                )
+            )
+            return False, output, None
+
+        add_user_message(self.messages, normalized_user_input)
+
+        try:
+            from ai_client import get_ai_response
+
+            answer = get_ai_response(self.client, self.messages, self.config)
+            output, tts_text = self.handle_ai_answer_for_gui(answer)
+            add_assistant_message(self.messages, answer)
+            return False, output, tts_text
         except Exception as e:
-            self.append_from_thread(f"Błąd: {e}")
-        finally:
-            self.after(0, self.finish_work)
+            return False, f"Błąd: {e}", None
+
+    def handle_ai_answer_for_gui(self, answer):
+        data = parse_ai_json(answer)
+        action = data.get("action")
+
+        if action == "chat":
+            response = data.get("response", "")
+            return f"{self.assistant_name}: {response}", response
+
+        from main import handle_ai_answer
+
+        _result, output = self.capture_output(
+            lambda: handle_ai_answer(answer, self.assistant_name, self.config)
+        )
+        return output, None
+
+    def speak_in_background(self, text):
+        if not text or not self.config.get("voice_enabled", False):
+            return
+
+        def worker():
+            try:
+                from voice import speak
+
+                speak(text)
+            except Exception as e:
+                import sys
+
+                try:
+                    print("Błąd TTS:", e, file=sys.__stderr__ or sys.stderr)
+                except Exception:
+                    pass
+
+        threading.Thread(target=worker, daemon=True).start()
 
 
 if __name__ == "__main__":
