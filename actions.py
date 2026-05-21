@@ -27,6 +27,7 @@ SPOTIFY_SEARCH_COMMANDS = [
 APPS_PATH = get_base_path() / "apps.json"
 ALIASES_PATH = get_base_path() / "aliases.json"
 PROCESSES_PATH = get_base_path() / "processes.json"
+APP_CATEGORIES_PATH = get_base_path() / "app_categories.json"
 
 
 def parse_ai_json(text):
@@ -206,6 +207,35 @@ def load_processes():
         for name, process_name in processes.items()
         if isinstance(name, str) and isinstance(process_name, str) and process_name
     }
+
+
+def load_app_categories():
+    if not APP_CATEGORIES_PATH.exists():
+        return {}
+
+    try:
+        with APP_CATEGORIES_PATH.open("r", encoding="utf-8") as categories_file:
+            categories = json.load(categories_file)
+    except json.JSONDecodeError:
+        return {}
+
+    if not isinstance(categories, dict):
+        return {}
+
+    normalized_categories = {}
+    for category, app_names in categories.items():
+        if not isinstance(category, str) or not isinstance(app_names, list):
+            continue
+
+        normalized_names = [
+            normalize_text(app_name)
+            for app_name in app_names
+            if isinstance(app_name, str) and app_name.strip()
+        ]
+        if normalized_names:
+            normalized_categories[category] = normalized_names
+
+    return normalized_categories
 
 
 def open_app(target):

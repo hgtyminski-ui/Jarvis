@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 
 
-DATA_FILES = ["config.json", "apps.json", "aliases.json", "processes.json"]
+DATA_FILES = ["config.json", "apps.json", "aliases.json", "processes.json", "app_categories.json"]
 
 
 def get_base_path():

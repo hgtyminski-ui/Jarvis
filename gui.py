@@ -11,6 +11,7 @@ import customtkinter as ctk
 from actions import (
     close_app,
     is_app_running,
+    load_app_categories,
     load_apps,
     load_processes,
     open_app,
@@ -40,6 +41,14 @@ RED_HOVER = "#e0334d"
 TEXT = "#d9f7ff"
 MUTED = "#6f95a3"
 LINE = "#0c5a78"
+CATEGORY_STYLES = [
+    ("#06121d", "#0d6f8c"),
+    ("#071822", "#169c9a"),
+    ("#0a1514", "#00a864"),
+    ("#11131f", "#536dff"),
+    ("#160f18", "#a15cff"),
+    ("#17100f", "#d97335"),
+]
 
 
 class JarvisGUI(ctk.CTk):
@@ -161,6 +170,7 @@ class JarvisGUI(ctk.CTk):
         self.right_panel = self.create_panel(dashboard)
         self.right_panel.grid(row=0, column=4, padx=(10, 0), sticky="nsew")
         self.build_system_status(self.right_panel)
+        self.build_apps_panel(dashboard)
 
     def build_input_bar(self):
         self.input_frame = ctk.CTkFrame(
@@ -272,19 +282,6 @@ class JarvisGUI(ctk.CTk):
         )
         self.apps_toggle_button.grid(row=8, column=0, padx=14, pady=(16, 5), sticky="ew")
 
-        self.apps_container = ctk.CTkScrollableFrame(
-            parent,
-            fg_color="#07101a",
-            border_width=1,
-            border_color=LINE,
-            corner_radius=8,
-            height=260,
-            scrollbar_button_color="#0d4964",
-            scrollbar_button_hover_color=CYAN,
-        )
-        self.apps_container.grid_columnconfigure(0, weight=1)
-        self.refresh_apps_list()
-
         ctk.CTkLabel(
             parent,
             text="LOCAL COMMAND GRID",
@@ -292,14 +289,92 @@ class JarvisGUI(ctk.CTk):
             font=ctk.CTkFont(size=11),
         ).grid(row=10, column=0, padx=14, pady=(18, 0), sticky="s")
 
+    def build_apps_panel(self, parent):
+        self.apps_panel = ctk.CTkFrame(
+            parent,
+            fg_color=PANEL,
+            border_width=1,
+            border_color=CYAN,
+            corner_radius=8,
+        )
+        self.apps_panel.grid(row=0, column=0, columnspan=5, padx=0, pady=0, sticky="nsew")
+        self.apps_panel.grid_columnconfigure(0, weight=1)
+        self.apps_panel.grid_rowconfigure(1, weight=1)
+
+        header = ctk.CTkFrame(self.apps_panel, fg_color="#07101a", corner_radius=8)
+        header.grid(row=0, column=0, padx=14, pady=(14, 8), sticky="ew")
+        header.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            header,
+            text="APLIKACJE",
+            text_color=CYAN,
+            anchor="w",
+            font=ctk.CTkFont(size=16, weight="bold"),
+        ).grid(row=0, column=0, padx=12, pady=10, sticky="ew")
+
+        self.apps_close_button = ctk.CTkButton(
+            header,
+            text="X",
+            command=self.toggle_apps_panel,
+            width=34,
+            height=28,
+            fg_color="#17080d",
+            hover_color="#42101a",
+            text_color="#ff5c7a",
+            border_width=1,
+            border_color=CYAN,
+            corner_radius=6,
+            font=ctk.CTkFont(size=13, weight="bold"),
+        )
+        self.apps_close_button.grid(row=0, column=1, padx=(8, 12), pady=8, sticky="e")
+
+        self.apps_container = ctk.CTkScrollableFrame(
+            self.apps_panel,
+            fg_color="#050b12",
+            border_width=1,
+            border_color=LINE,
+            corner_radius=8,
+            scrollbar_button_color="#0d4964",
+            scrollbar_button_hover_color=CYAN,
+        )
+        self.apps_container.grid(row=1, column=0, padx=14, pady=(0, 14), sticky="nsew")
+
+        self.apps_panel.grid_remove()
+
     def toggle_apps_panel(self):
         self.apps_panel_visible = not self.apps_panel_visible
 
         if self.apps_panel_visible:
-            self.apps_container.grid(row=9, column=0, padx=14, pady=(0, 6), sticky="nsew")
+            self.apps_panel.grid()
+            self.apps_panel.tkraise()
             self.refresh_apps_list()
         else:
-            self.apps_container.grid_remove()
+            self.apps_panel.grid_remove()
+
+    def get_app_categories(self, apps):
+        categories = load_app_categories()
+        if not categories:
+            return {"Aplikacje": sorted(apps.keys())}
+
+        seen = set()
+        ordered_categories = {}
+
+        for category, app_names in categories.items():
+            valid_names = []
+            for app_name in app_names:
+                if app_name in apps and app_name not in seen:
+                    valid_names.append(app_name)
+                    seen.add(app_name)
+
+            if valid_names:
+                ordered_categories[category] = valid_names
+
+        uncategorized = [app_name for app_name in sorted(apps.keys()) if app_name not in seen]
+        if uncategorized:
+            ordered_categories["Inne"] = uncategorized
+
+        return ordered_categories
 
     def refresh_apps_list(self):
         if not hasattr(self, "apps_container"):
@@ -311,6 +386,7 @@ class JarvisGUI(ctk.CTk):
         self.app_action_buttons = {}
         apps = load_apps()
         processes = load_processes()
+        categories = self.get_app_categories(apps)
 
         if not apps:
             ctk.CTkLabel(
@@ -321,44 +397,87 @@ class JarvisGUI(ctk.CTk):
             ).grid(row=0, column=0, padx=10, pady=10, sticky="ew")
             return
 
-        for row, app_name in enumerate(sorted(apps.keys())):
-            has_process = normalize_text(app_name) in processes
-            running = is_app_running(app_name) if has_process else False
-            action_text = "Zamknij" if running else "Otwórz"
-            fg_color = RED if running else GREEN
-            hover_color = RED_HOVER if running else GREEN_HOVER
-            action = "close" if running else "open"
+        category_count = len(categories)
+        column_count = min(3, max(1, category_count))
+        for column in range(column_count):
+            self.apps_container.grid_columnconfigure(column, weight=1, uniform="app_categories")
 
-            app_row = ctk.CTkFrame(self.apps_container, fg_color="#050b12", corner_radius=6)
-            app_row.grid(row=row, column=0, padx=6, pady=4, sticky="ew")
-            app_row.grid_columnconfigure(0, weight=1)
+        for index, (category, app_names) in enumerate(categories.items()):
+            row = index // column_count
+            column = index % column_count
+            bg_color, border_color = CATEGORY_STYLES[index % len(CATEGORY_STYLES)]
+
+            category_frame = ctk.CTkFrame(
+                self.apps_container,
+                fg_color=bg_color,
+                border_width=1,
+                border_color=border_color,
+                corner_radius=8,
+            )
+            category_frame.grid(row=row, column=column, padx=8, pady=8, sticky="nsew")
+            category_frame.grid_columnconfigure(0, weight=1)
 
             ctk.CTkLabel(
-                app_row,
-                text=app_name,
-                text_color=TEXT,
+                category_frame,
+                text=category.upper(),
+                text_color=CYAN,
                 anchor="w",
-                font=ctk.CTkFont(size=12, weight="bold"),
-            ).grid(row=0, column=0, padx=(10, 6), pady=8, sticky="ew")
+                font=ctk.CTkFont(size=13, weight="bold"),
+            ).grid(row=0, column=0, padx=10, pady=(10, 6), sticky="ew")
 
-            button = ctk.CTkButton(
-                app_row,
-                text=action_text,
-                command=lambda target=app_name, action=action: self.run_app_action(target, action),
-                width=76,
-                height=28,
-                fg_color=fg_color,
-                hover_color=hover_color,
-                text_color="#041014",
-                border_width=1,
-                border_color=CYAN,
-                corner_radius=6,
-                font=ctk.CTkFont(size=11, weight="bold"),
+            ctk.CTkFrame(category_frame, fg_color=border_color, height=1, corner_radius=0).grid(
+                row=1,
+                column=0,
+                padx=10,
+                pady=(0, 6),
+                sticky="ew",
             )
-            button.grid(row=0, column=1, padx=(0, 8), pady=7, sticky="e")
-            self.app_action_buttons[app_name] = button
+
+            for app_row_index, app_key in enumerate(app_names, start=2):
+                self.add_app_row(category_frame, app_row_index, app_key, app_key, processes)
+
+    def add_app_row(self, parent, row, app_key, display_name, processes):
+        app_key = normalize_text(app_key)
+        has_process = app_key in processes
+        running = is_app_running(app_key) if has_process else False
+        action_text = "Zamknij" if running else "Otwórz"
+        fg_color = RED if running else GREEN
+        hover_color = RED_HOVER if running else GREEN_HOVER
+        action = "close" if running else "open"
+
+        app_row = ctk.CTkFrame(parent, fg_color="#050b12", corner_radius=6)
+        app_row.grid(row=row, column=0, padx=8, pady=4, sticky="ew")
+        app_row.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            app_row,
+            text=display_name,
+            text_color=TEXT,
+            anchor="w",
+            font=ctk.CTkFont(size=12, weight="bold"),
+        ).grid(row=0, column=0, padx=(10, 6), pady=8, sticky="ew")
+
+        button = ctk.CTkButton(
+            app_row,
+            text=action_text,
+            command=lambda target=app_key, action=action: self.run_app_action(target, action),
+            width=78,
+            height=28,
+            fg_color=fg_color,
+            hover_color=hover_color,
+            text_color="#041014",
+            border_width=1,
+            border_color=CYAN,
+            corner_radius=6,
+            font=ctk.CTkFont(size=11, weight="bold"),
+        )
+        button.grid(row=0, column=1, padx=(0, 8), pady=7, sticky="e")
+        self.app_action_buttons[app_key] = button
 
     def run_app_action(self, target, action):
+        target = normalize_text(target)
+        print(f"App button clicked: action={action} target={target}")
+
         button = self.app_action_buttons.get(target)
         if button:
             button.configure(state="disabled")
