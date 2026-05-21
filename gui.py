@@ -12,14 +12,14 @@ from memory import create_messages
 
 class JarvisGUI(ctk.CTk):
     def __init__(self):
+        ctk.set_appearance_mode("dark")
+        ctk.set_default_color_theme("blue")
+
         super().__init__()
 
         self.title("Jarvis")
-        self.geometry("760x520")
-        self.minsize(560, 380)
-
-        ctk.set_appearance_mode("dark")
-        ctk.set_default_color_theme("blue")
+        self.geometry("900x650")
+        self.minsize(720, 500)
 
         self.assistant_name = "Jarvis"
         self.client = None
@@ -29,26 +29,64 @@ class JarvisGUI(ctk.CTk):
         self.is_recording = False
 
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
 
-        self.history = ctk.CTkTextbox(self, wrap="word")
-        self.history.grid(row=0, column=0, columnspan=3, padx=12, pady=(12, 8), sticky="nsew")
+        self.status_label = ctk.CTkLabel(
+            self,
+            text="Status: Gotowy",
+            anchor="w",
+            font=ctk.CTkFont(size=15, weight="bold"),
+        )
+        self.status_label.grid(row=0, column=0, padx=16, pady=(14, 8), sticky="ew")
+
+        self.history = ctk.CTkTextbox(
+            self,
+            wrap="word",
+            font=ctk.CTkFont(size=15),
+            border_width=1,
+            corner_radius=8,
+        )
+        self.history.grid(row=1, column=0, padx=16, pady=(0, 12), sticky="nsew")
         self.history.configure(state="disabled")
 
-        self.entry = ctk.CTkEntry(self, placeholder_text="Napisz do Jarvisa...")
-        self.entry.grid(row=1, column=0, padx=(12, 8), pady=(0, 8), sticky="ew")
-        self.entry.bind("<Return>", lambda _event: self.send_text())
+        self.input_frame = ctk.CTkFrame(self, corner_radius=8)
+        self.input_frame.grid(row=2, column=0, padx=16, pady=(0, 16), sticky="ew")
+        self.input_frame.grid_columnconfigure(0, weight=1)
 
-        self.send_button = ctk.CTkButton(self, text="Wyślij", command=self.send_text)
-        self.send_button.grid(row=1, column=1, padx=(0, 8), pady=(0, 8))
+        self.entry = ctk.CTkTextbox(
+            self.input_frame,
+            height=96,
+            wrap="word",
+            font=ctk.CTkFont(size=14),
+            border_width=1,
+            corner_radius=8,
+        )
+        self.entry.grid(row=0, column=0, rowspan=2, padx=(10, 8), pady=10, sticky="ew")
+        self.entry.bind("<Return>", self.on_entry_return)
+        self.entry.bind("<Shift-Return>", self.on_entry_shift_return)
 
-        self.listen_button = ctk.CTkButton(self, text="Listen")
-        self.listen_button.grid(row=1, column=2, padx=(0, 12), pady=(0, 8))
+        self.send_button = ctk.CTkButton(
+            self.input_frame,
+            text="Wyślij",
+            command=self.send_text,
+            width=110,
+        )
+        self.send_button.grid(row=0, column=1, padx=(0, 10), pady=(10, 6), sticky="ew")
+
+        self.listen_button = ctk.CTkButton(self.input_frame, text="Listen", width=110)
+        self.listen_button.grid(row=0, column=2, padx=(0, 10), pady=(10, 6), sticky="ew")
         self.listen_button.bind("<ButtonPress-1>", self.on_listen_press)
         self.listen_button.bind("<ButtonRelease-1>", self.on_listen_release)
 
-        self.status_label = ctk.CTkLabel(self, text="Status: Gotowy", anchor="w")
-        self.status_label.grid(row=2, column=0, columnspan=3, padx=12, pady=(0, 12), sticky="ew")
+        self.clear_button = ctk.CTkButton(
+            self.input_frame,
+            text="Wyczyść",
+            command=self.clear_history,
+            width=110,
+            fg_color="#3a3a3a",
+            hover_color="#4a4a4a",
+        )
+        self.clear_button.grid(row=1, column=1, columnspan=2, padx=(0, 10), pady=(0, 10), sticky="ew")
 
         self.load_jarvis()
 
@@ -81,6 +119,18 @@ class JarvisGUI(ctk.CTk):
         self.entry.configure(state=state)
         self.send_button.configure(state=state)
 
+    def on_entry_return(self, event):
+        if event.state & 0x0001:
+            self.entry.insert("insert", "\n")
+            return "break"
+
+        self.send_text()
+        return "break"
+
+    def on_entry_shift_return(self, _event):
+        self.entry.insert("insert", "\n")
+        return "break"
+
     def append_history(self, text):
         if not text:
             return
@@ -88,6 +138,11 @@ class JarvisGUI(ctk.CTk):
         self.history.configure(state="normal")
         self.history.insert("end", text.rstrip() + "\n")
         self.history.see("end")
+        self.history.configure(state="disabled")
+
+    def clear_history(self):
+        self.history.configure(state="normal")
+        self.history.delete("1.0", "end")
         self.history.configure(state="disabled")
 
     def append_from_thread(self, text):
@@ -112,11 +167,11 @@ class JarvisGUI(ctk.CTk):
         if self.is_busy:
             return
 
-        user_text = self.entry.get().strip()
+        user_text = self.entry.get("1.0", "end-1c").strip()
         if not user_text:
             return
 
-        self.entry.delete(0, "end")
+        self.entry.delete("1.0", "end")
 
         if user_text.lower() == "/listen":
             self.append_history("Przytrzymaj przycisk Listen, aby nagrywać.")
