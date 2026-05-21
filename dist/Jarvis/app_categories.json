@@ -1,0 +1,28 @@
+{
+  "System": [
+    "notepad",
+    "calculator",
+    "settings"
+  ],
+  "Przeglądarka": [
+    "comet"
+  ],
+  "Komunikacja": [
+    "discord",
+    "teams",
+    "whatsapp"
+  ],
+  "Media": [
+    "spotify",
+    "netflix"
+  ],
+  "Gry": [
+    "steam",
+    "anno1404",
+    "forza horizon 5",
+    "phasmophobia"
+  ],
+  "Programowanie": [
+    "vscode"
+  ]
+}
