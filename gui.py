@@ -8,6 +8,11 @@ import tkinter as tk
 
 import customtkinter as ctk
 
+try:
+    import requests
+except ImportError:
+    requests = None
+
 from actions import (
     close_app,
     is_app_running,
@@ -74,6 +79,8 @@ class JarvisGUI(ctk.CTk):
         self.pulse_phase = 0
         self.system_labels = {}
         self.app_action_buttons = {}
+        self.lm_server_label = None
+        self.lm_model_label = None
 
         self.bind("<F11>", self.toggle_fullscreen)
         self.bind("<Escape>", self.exit_fullscreen)
@@ -583,19 +590,70 @@ class JarvisGUI(ctk.CTk):
         )
         self.date_label.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="ew")
 
-        self.add_status_row(parent, 2, "LM Studio", "Nieznany")
-        self.add_status_row(parent, 3, "Model", "Nieznany")
-        self.add_status_row(parent, 4, "Tryb głosu", "Nieznany")
-        self.add_status_row(parent, 5, "Mikrofon", "Nieznany")
-        self.add_status_row(parent, 6, "CPU", "brak danych")
-        self.add_status_row(parent, 7, "RAM", "brak danych")
+        self.build_lm_studio_status(parent, 2)
+        self.add_status_row(parent, 3, "Tryb głosu", "Nieznany")
+        self.add_status_row(parent, 4, "Mikrofon", "Nieznany")
+        self.add_status_row(parent, 5, "CPU", "brak danych")
+        self.add_status_row(parent, 6, "RAM", "brak danych")
 
         ctk.CTkLabel(
             parent,
             text="HUD LINK ACTIVE",
             text_color=MUTED,
             font=ctk.CTkFont(size=11),
-        ).grid(row=8, column=0, padx=14, pady=(18, 0), sticky="s")
+        ).grid(row=7, column=0, padx=14, pady=(18, 0), sticky="s")
+
+    def build_lm_studio_status(self, parent, row):
+        frame = ctk.CTkFrame(
+            parent,
+            fg_color="#07101a",
+            border_width=1,
+            border_color=LINE,
+            corner_radius=8,
+        )
+        frame.grid(row=row, column=0, padx=14, pady=(0, 10), sticky="ew")
+        frame.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            frame,
+            text="LM STUDIO",
+            text_color=CYAN,
+            anchor="w",
+            font=ctk.CTkFont(size=12, weight="bold"),
+        ).grid(row=0, column=0, padx=10, pady=(10, 4), sticky="ew")
+
+        self.lm_server_label = ctk.CTkLabel(
+            frame,
+            text="Server: Nieznany",
+            text_color=TEXT,
+            anchor="w",
+            font=ctk.CTkFont(size=12),
+        )
+        self.lm_server_label.grid(row=1, column=0, padx=10, pady=(0, 3), sticky="ew")
+
+        self.lm_model_label = ctk.CTkLabel(
+            frame,
+            text="Model: brak",
+            text_color=TEXT,
+            anchor="w",
+            font=ctk.CTkFont(size=12),
+        )
+        self.lm_model_label.grid(row=2, column=0, padx=10, pady=(0, 8), sticky="ew")
+
+        refresh_button = ctk.CTkButton(
+            frame,
+            text="Odśwież status",
+            command=self.refresh_lm_studio_status,
+            height=28,
+            fg_color="#082a3a",
+            hover_color="#0d4964",
+            text_color=TEXT,
+            border_width=1,
+            border_color=CYAN,
+            corner_radius=6,
+            font=ctk.CTkFont(size=12, weight="bold"),
+        )
+        refresh_button.grid(row=3, column=0, padx=10, pady=(0, 10), sticky="ew")
 
     def add_status_row(self, parent, row, name, value):
         frame = ctk.CTkFrame(parent, fg_color="#07101a", corner_radius=6)
@@ -682,6 +740,7 @@ class JarvisGUI(ctk.CTk):
             self.client = create_client(self.config)
             self.messages = create_messages(self.config)
             self.update_system_status("Gotowy")
+            self.refresh_lm_studio_status()
             self.append_history(f"{self.assistant_name} uruchomiony.")
         except ConfigError as e:
             self.set_error_status(e)
@@ -696,14 +755,9 @@ class JarvisGUI(ctk.CTk):
 
     def update_system_status(self, lm_status=None):
         if not self.config:
-            label = self.system_labels.get("LM Studio")
-            if label and lm_status:
-                label.configure(text=str(lm_status))
             return
 
         values = {
-            "LM Studio": lm_status or "Skonfigurowany",
-            "Model": self.config.get("model", "Nieznany"),
             "Tryb głosu": "Włączony" if self.config.get("voice_enabled", False) else "Wyłączony",
             "Mikrofon": f"Urządzenie {self.config.get('microphone_device', 'auto')}",
         }
@@ -712,6 +766,51 @@ class JarvisGUI(ctk.CTk):
             label = self.system_labels.get(name)
             if label:
                 label.configure(text=str(value))
+
+    def refresh_lm_studio_status(self):
+        if self.lm_server_label:
+            self.lm_server_label.configure(text="Server: Sprawdzam...")
+        if self.lm_model_label:
+            self.lm_model_label.configure(text="Model: Sprawdzam...")
+
+        thread = threading.Thread(target=self.refresh_lm_studio_status_worker, daemon=True)
+        thread.start()
+
+    def refresh_lm_studio_status_worker(self):
+        expected_model = "local-model"
+        if self.config:
+            expected_model = self.config.get("model", expected_model)
+
+        server_text = "Server: Offline"
+        model_text = "Model: brak"
+
+        try:
+            if requests is None:
+                raise RuntimeError("requests is not installed")
+
+            response = requests.get("http://127.0.0.1:1233/v1/models", timeout=2)
+            response.raise_for_status()
+            data = response.json()
+            models = data.get("data", []) if isinstance(data, dict) else []
+            model_ids = {
+                model.get("id")
+                for model in models
+                if isinstance(model, dict) and isinstance(model.get("id"), str)
+            }
+
+            server_text = "Server: Online"
+            if expected_model in model_ids:
+                model_text = f"Model: {expected_model} aktywny"
+        except Exception:
+            pass
+
+        self.after(0, lambda: self.update_lm_studio_labels(server_text, model_text))
+
+    def update_lm_studio_labels(self, server_text, model_text):
+        if self.lm_server_label:
+            self.lm_server_label.configure(text=server_text)
+        if self.lm_model_label:
+            self.lm_model_label.configure(text=model_text)
 
     def update_clock_and_metrics(self):
         now = datetime.datetime.now()

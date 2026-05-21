@@ -7,3 +7,4 @@ faster-whisper
 pyinstaller
 customtkinter
 psutil
+requests
