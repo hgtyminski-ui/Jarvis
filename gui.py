@@ -78,6 +78,10 @@ class JarvisGUI(ctk.CTk):
         self.is_fullscreen = False
         self.apps_panel_visible = False
         self.pulse_phase = 0
+        self.wave_phase = 0
+        self.visual_mode = "core"
+        self.visual_transition_progress = 0.0
+        self.wave_return_start_progress = 1.0
         self.system_labels = {}
         self.app_action_buttons = {}
         self.lm_server_label = None
@@ -324,6 +328,7 @@ class JarvisGUI(ctk.CTk):
             "temperature": tk.StringVar(value=str(values.get("temperature", 0.3))),
             "edge_voice": tk.StringVar(value=str(values.get("edge_voice", "pl-PL-MarekNeural"))),
             "edge_rate": tk.StringVar(value=str(values.get("edge_rate", "+0%"))),
+            "animation_speed": tk.StringVar(value=str(values.get("animation_speed", 1.6))),
         }
 
         voice_checkbox = ctk.CTkCheckBox(
@@ -344,6 +349,7 @@ class JarvisGUI(ctk.CTk):
             ("temperature", "temperature"),
             ("edge_voice", "edge_voice"),
             ("edge_rate", "edge_rate"),
+            ("animation_speed", "animation_speed"),
         ]:
             self.add_settings_entry(frame, row, label, settings_vars[key])
             row += 1
@@ -437,6 +443,9 @@ class JarvisGUI(ctk.CTk):
             updated_config["temperature"] = float(settings_vars["temperature"].get().strip())
             updated_config["edge_voice"] = settings_vars["edge_voice"].get().strip() or "pl-PL-MarekNeural"
             updated_config["edge_rate"] = settings_vars["edge_rate"].get().strip() or "+0%"
+            updated_config["animation_speed"] = self.clamp_animation_speed(
+                float(settings_vars["animation_speed"].get().strip())
+            )
         except ValueError as e:
             message_label.configure(text=f"Błąd wartości: {e}", text_color="#ff5c7a")
             self.set_error_status(e)
@@ -864,6 +873,31 @@ class JarvisGUI(ctk.CTk):
         self.system_labels[name] = value_label
 
     def draw_core(self, _event=None):
+        if self.visual_mode == "transition_to_wave":
+            progress = self.ease_progress(self.visual_transition_progress)
+            if progress < 0.58:
+                self.draw_core_frame(1 - progress / 0.58)
+            else:
+                self.draw_wave_frame((progress - 0.58) / 0.42, self.wave_phase)
+            return
+
+        if self.visual_mode == "wave":
+            self.draw_wave_frame(1, self.wave_phase)
+            return
+
+        if self.visual_mode == "transition_to_core":
+            progress = self.ease_progress(self.visual_transition_progress)
+            if progress < 0.58:
+                self.draw_wave_frame(self.wave_return_start_progress * (1 - progress / 0.58), self.wave_phase)
+            else:
+                self.draw_core_frame((progress - 0.58) / 0.42)
+            return
+
+        self.draw_core_frame(1)
+
+    def draw_core_frame(self, progress):
+        progress = self.clamp(progress)
+
         canvas = self.core_canvas
         canvas.delete("all")
 
@@ -872,12 +906,13 @@ class JarvisGUI(ctk.CTk):
         cx = width / 2
         cy = height / 2
         pulse = 1 + math.sin(self.pulse_phase / 10) * 0.05
-        radius = min(width, height) * 0.36 * pulse
+        radius = min(width, height) * (0.31 + 0.05 * progress) * pulse
 
-        canvas.create_line(22, 28, width * 0.28, 28, fill=LINE, width=1)
-        canvas.create_line(width * 0.72, 28, width - 22, 28, fill=LINE, width=1)
-        canvas.create_line(22, height - 28, width * 0.28, height - 28, fill=LINE, width=1)
-        canvas.create_line(width * 0.72, height - 28, width - 22, height - 28, fill=LINE, width=1)
+        line_color = self.fade_color(LINE, progress)
+        canvas.create_line(22, 28, width * 0.28, 28, fill=line_color, width=max(1, int(1 + progress)))
+        canvas.create_line(width * 0.72, 28, width - 22, 28, fill=line_color, width=max(1, int(1 + progress)))
+        canvas.create_line(22, height - 28, width * 0.28, height - 28, fill=line_color, width=max(1, int(1 + progress)))
+        canvas.create_line(width * 0.72, height - 28, width - 22, height - 28, fill=line_color, width=max(1, int(1 + progress)))
 
         for scale, color, line_width in [
             (1.18, "#06445c", 1),
@@ -888,7 +923,14 @@ class JarvisGUI(ctk.CTk):
             (0.23, "#d6fbff", 1),
         ]:
             r = radius * scale
-            canvas.create_oval(cx - r, cy - r, cx + r, cy + r, outline=color, width=line_width)
+            canvas.create_oval(
+                cx - r,
+                cy - r,
+                cx + r,
+                cy + r,
+                outline=self.fade_color(color, progress),
+                width=max(1, int(line_width * max(0.6, progress))),
+            )
 
         for angle in range(0, 360, 30):
             radians = math.radians(angle + self.pulse_phase * 1.4)
@@ -898,22 +940,166 @@ class JarvisGUI(ctk.CTk):
             y1 = cy + math.sin(radians) * inner
             x2 = cx + math.cos(radians) * outer
             y2 = cy + math.sin(radians) * outer
-            canvas.create_line(x1, y1, x2, y2, fill=CYAN, width=1)
+            canvas.create_line(x1, y1, x2, y2, fill=self.fade_color(CYAN, progress), width=max(1, int(progress * 2)))
 
         for angle in range(0, 360, 90):
             radians = math.radians(angle - self.pulse_phase)
             arc_radius = radius * 0.72
             x = cx + math.cos(radians) * arc_radius
             y = cy + math.sin(radians) * arc_radius
-            canvas.create_oval(x - 3, y - 3, x + 3, y + 3, fill=CYAN, outline="")
+            dot_radius = max(1, 3 * progress)
+            canvas.create_oval(
+                x - dot_radius,
+                y - dot_radius,
+                x + dot_radius,
+                y + dot_radius,
+                fill=self.fade_color(CYAN, progress),
+                outline="",
+            )
 
-        canvas.create_text(cx, cy - 10, text="CORE", fill=TEXT, font=("Segoe UI", 24, "bold"))
-        canvas.create_text(cx, cy + 22, text="ONLINE", fill=CYAN, font=("Segoe UI", 14, "bold"))
-        canvas.create_line(26, height - 24, width - 26, height - 24, fill="#0e4c67", width=1)
-        canvas.create_text(width - 58, height - 40, text="PULSE", fill=MUTED, font=("Consolas", 10))
+        canvas.create_text(cx, cy - 10, text="CORE", fill=self.fade_color(TEXT, progress), font=("Segoe UI", 24, "bold"))
+        canvas.create_text(cx, cy + 22, text="ONLINE", fill=self.fade_color(CYAN, progress), font=("Segoe UI", 14, "bold"))
+        canvas.create_line(26, height - 24, width - 26, height - 24, fill=self.fade_color("#0e4c67", progress), width=1)
+        canvas.create_text(width - 58, height - 40, text="PULSE", fill=self.fade_color(MUTED, progress), font=("Consolas", 10))
+
+    def draw_wave_frame(self, progress, motion_phase):
+        progress = self.clamp(progress)
+        speed = self.get_animation_speed()
+        canvas = self.core_canvas
+        canvas.delete("all")
+
+        width = max(canvas.winfo_width(), 420)
+        height = max(canvas.winfo_height(), 285)
+        cx = width / 2
+        cy = height / 2
+        palette = [CYAN, "#18a8ff", "#7c5cff", "#d84dff"]
+
+        frame_color = self.fade_color("#18445b", progress)
+        canvas.create_line(22, 28, width * 0.28, 28, fill=frame_color, width=1)
+        canvas.create_line(width * 0.72, 28, width - 22, 28, fill=frame_color, width=1)
+        canvas.create_line(22, height - 28, width * 0.28, height - 28, fill=frame_color, width=1)
+        canvas.create_line(width * 0.72, height - 28, width - 22, height - 28, fill=frame_color, width=1)
+
+        bar_count = 22
+        visible_bars = max(2, int(bar_count * progress))
+        bar_gap = 6
+        available_width = width - 70
+        bar_width = max(4, (available_width - bar_gap * (bar_count - 1)) / bar_count)
+        start_x = (width - (bar_count * bar_width + (bar_count - 1) * bar_gap)) / 2
+        for index in range(bar_count):
+            if index >= visible_bars:
+                continue
+
+            phase = motion_phase * 0.18 * speed - index * 0.42
+            life = (math.sin(phase) + 1) / 2
+            height_scale = 0.22 + life * math.sin(life * math.pi) * 0.78
+            edge_distance = min(index + 1, visible_bars - index)
+            edge_envelope = self.clamp(edge_distance / 4)
+            bar_height = (8 + height_scale * 102) * progress * edge_envelope
+            x1 = start_x + index * (bar_width + bar_gap)
+            x2 = x1 + bar_width
+            color = self.fade_color(palette[index % len(palette)], progress * edge_envelope)
+            canvas.create_rectangle(
+                x1,
+                cy - bar_height / 2,
+                x2,
+                cy + bar_height / 2,
+                fill=color,
+                outline="",
+            )
+
+        canvas.create_text(cx, 54, text="LISTENING", fill=self.fade_color(CYAN, progress), font=("Segoe UI", 18, "bold"))
+        canvas.create_text(
+            cx,
+            height - 48,
+            text="AUDIO INPUT ACTIVE",
+            fill=self.fade_color("#d84dff", progress),
+            font=("Consolas", 11, "bold"),
+        )
+        canvas.create_line(26, height - 24, width - 26, height - 24, fill=self.fade_color("#223b78", progress), width=1)
+
+    def start_core_to_wave_transition(self):
+        self.visual_mode = "transition_to_wave"
+        self.visual_transition_progress = 0.0
+        self.wave_phase = 0
+        self.draw_core()
+
+    def start_wave_to_core_transition(self):
+        if self.visual_mode == "core":
+            return
+
+        self.wave_return_start_progress = 1.0
+        if self.visual_mode == "transition_to_wave":
+            progress = self.ease_progress(self.visual_transition_progress)
+            if progress < 0.58:
+                self.wave_return_start_progress = 0.0
+            else:
+                self.wave_return_start_progress = (progress - 0.58) / 0.42
+        elif self.visual_mode == "transition_to_core":
+            return
+
+        if self.wave_return_start_progress <= 0:
+            self.visual_mode = "core"
+            self.visual_transition_progress = 0.0
+            self.draw_core()
+            return
+
+        self.visual_mode = "transition_to_core"
+        self.visual_transition_progress = 0.0
+        self.draw_core()
+
+    def clamp(self, value):
+        return max(0.0, min(1.0, value))
+
+    def get_animation_speed(self):
+        if not self.config:
+            return 1.6
+
+        try:
+            speed = float(self.config.get("animation_speed", 1.6))
+        except (TypeError, ValueError):
+            return 1.6
+
+        return self.clamp_animation_speed(speed)
+
+    def clamp_animation_speed(self, speed):
+        return max(0.5, min(3.0, speed))
+
+    def ease_progress(self, value):
+        value = self.clamp(value)
+        return value * value * (3 - 2 * value)
+
+    def fade_color(self, color, progress):
+        progress = self.clamp(progress)
+        color = color.lstrip("#")
+        red = int(color[0:2], 16)
+        green = int(color[2:4], 16)
+        blue = int(color[4:6], 16)
+        base_red = int(PANEL_2[1:3], 16)
+        base_green = int(PANEL_2[3:5], 16)
+        base_blue = int(PANEL_2[5:7], 16)
+        red = int(base_red + (red - base_red) * progress)
+        green = int(base_green + (green - base_green) * progress)
+        blue = int(base_blue + (blue - base_blue) * progress)
+        return f"#{red:02x}{green:02x}{blue:02x}"
 
     def animate_core(self):
+        animation_speed = self.get_animation_speed()
         self.pulse_phase = (self.pulse_phase + 1) % 360
+        if self.visual_mode in ["transition_to_wave", "wave", "transition_to_core"]:
+            self.wave_phase = (self.wave_phase + animation_speed) % 10000
+
+        if self.visual_mode == "transition_to_wave":
+            self.visual_transition_progress += 0.075 * animation_speed
+            if self.visual_transition_progress >= 1:
+                self.visual_transition_progress = 1
+                self.visual_mode = "wave"
+        elif self.visual_mode == "transition_to_core":
+            self.visual_transition_progress += 0.075 * animation_speed
+            if self.visual_transition_progress >= 1:
+                self.visual_transition_progress = 0
+                self.visual_mode = "core"
+
         if hasattr(self, "core_canvas"):
             self.draw_core()
         self.after(80, self.animate_core)
@@ -1174,6 +1360,7 @@ class JarvisGUI(ctk.CTk):
         self.is_recording = True
         self.set_text_controls_enabled(False)
         self.set_status("Słucham")
+        self.start_core_to_wave_transition()
 
         try:
             from speech_input import start_recording
@@ -1183,11 +1370,13 @@ class JarvisGUI(ctk.CTk):
 
             if not started:
                 self.is_recording = False
+                self.start_wave_to_core_transition()
                 self.finish_work()
         except Exception as e:
             self.set_error_status(e)
             self.append_history(f"Błąd: {e}")
             self.is_recording = False
+            self.start_wave_to_core_transition()
             self.after(1500, self.finish_work)
 
     def on_listen_release(self, _event):
@@ -1195,6 +1384,7 @@ class JarvisGUI(ctk.CTk):
             return
 
         self.is_recording = False
+        self.start_wave_to_core_transition()
         self.listen_button.configure(state="disabled")
         self.set_status("Rozpoznaję")
 

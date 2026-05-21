@@ -12,6 +12,7 @@
   "edge_voice": "pl-PL-MarekNeural",
   "edge_rate": "+5%",
   "edge_volume": "+0%",
+  "animation_speed": 1.8,
   "system_message": "Nazywasz się Jarvis, prywatnym asystentem użytkownika. Odpowiadasz po polsku, krótko i konkretnie. Nie używaj emotikonów. Nie używaj znaków specjalnych chyba że są niezbędne do odpowiedzi.",
   "max_history_messages": 10,
   "microphone_device": 1,
