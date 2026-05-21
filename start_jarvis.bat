@@ -1,7 +1,7 @@
 @echo off
 
-echo Starting LM Studio server...
-start /min "LM Studio Server" cmd /c lms server start --port 1233
+echo Starting LM Studio server hidden...
+wscript start_lmstudio_hidden.vbs
 
 timeout /t 10 /nobreak >nul
 

@@ -6,7 +6,7 @@ datas += collect_data_files('faster_whisper')
 
 
 a = Analysis(
-    ['main.py'],
+    ['gui.py'],
     pathex=[],
     binaries=[],
     datas=datas,
