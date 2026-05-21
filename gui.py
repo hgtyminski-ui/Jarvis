@@ -760,8 +760,7 @@ class JarvisGUI(ctk.CTk):
         self.destroy()
 
     def set_status(self, status):
-        clean_status = status.replace("...", "")
-        self.status_label.configure(text=clean_status)
+        self.status_label.configure(text=status)
 
     def set_error_status(self, detail=None):
         status = "Błąd"
@@ -851,7 +850,7 @@ class JarvisGUI(ctk.CTk):
         self.append_history(f"Ty: {user_text}")
         self.set_controls_enabled(False)
 
-        status = "Wykonuję" if self.is_local_action(user_text) else "Myślę"
+        status = "Wykonuję" if self.is_local_action(user_text) else "Myślę..."
         self.set_status(status)
 
         thread = threading.Thread(target=self.run_text_worker, args=(user_text,), daemon=True)
@@ -930,7 +929,7 @@ class JarvisGUI(ctk.CTk):
                 return
 
             self.append_from_thread(f"Ty: {spoken_text}")
-            status = "Wykonuję" if self.is_local_action(spoken_text) else "Myślę"
+            status = "Wykonuję" if self.is_local_action(spoken_text) else "Myślę..."
             self.set_status_from_thread(status)
 
             _should_exit, output, tts_text = self.process_user_text_for_gui(spoken_text)
@@ -989,6 +988,11 @@ class JarvisGUI(ctk.CTk):
             from ai_client import get_ai_response
 
             answer = get_ai_response(self.client, self.messages, self.config)
+            if not answer or not answer.strip():
+                response = "Nie otrzymałem odpowiedzi."
+                add_assistant_message(self.messages, response)
+                return False, f"{self.assistant_name}: {response}", response
+
             output, tts_text = self.handle_ai_answer_for_gui(answer)
             add_assistant_message(self.messages, answer)
             return False, output, tts_text
