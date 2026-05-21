@@ -1,6 +1,7 @@
 import contextlib
 import datetime
 import io
+import json
 import math
 import sys
 import threading
@@ -24,7 +25,7 @@ from actions import (
     parse_local_action,
 )
 from ai_client import create_client
-from config import ConfigError, load_config
+from config import CONFIG_PATH, ConfigError, load_config
 from memory import add_assistant_message, add_user_message, create_messages
 from text_utils import normalize_text
 
@@ -81,6 +82,7 @@ class JarvisGUI(ctk.CTk):
         self.app_action_buttons = {}
         self.lm_server_label = None
         self.lm_model_label = None
+        self.settings_window = None
 
         self.bind("<F11>", self.toggle_fullscreen)
         self.bind("<Escape>", self.exit_fullscreen)
@@ -265,12 +267,195 @@ class JarvisGUI(ctk.CTk):
         )
         self.apps_toggle_button.grid(row=0, column=0, padx=14, pady=(16, 5), sticky="ew")
 
+        self.settings_button = self.create_action_button(
+            parent,
+            "Ustawienia",
+            self.open_settings_window,
+            fg_color="#0d2f45",
+            hover_color="#124f70",
+        )
+        self.settings_button.grid(row=1, column=0, padx=14, pady=5, sticky="ew")
+
         ctk.CTkLabel(
             parent,
             text="LOCAL COMMAND GRID",
             text_color=MUTED,
             font=ctk.CTkFont(size=11),
         ).grid(row=10, column=0, padx=14, pady=(18, 0), sticky="s")
+
+    def open_settings_window(self):
+        if self.settings_window and self.settings_window.winfo_exists():
+            self.settings_window.focus()
+            return
+
+        config_data, error = self.read_settings_config()
+        values = config_data or {}
+
+        window = ctk.CTkToplevel(self)
+        window.title("Ustawienia")
+        window.geometry("420x520")
+        window.resizable(False, False)
+        window.configure(fg_color=BG)
+        window.transient(self)
+        window.grab_set()
+        self.settings_window = window
+
+        frame = ctk.CTkFrame(
+            window,
+            fg_color=PANEL,
+            border_width=1,
+            border_color=CYAN,
+            corner_radius=8,
+        )
+        frame.pack(fill="both", expand=True, padx=16, pady=16)
+        frame.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            frame,
+            text="USTAWIENIA",
+            text_color=CYAN,
+            font=ctk.CTkFont(size=16, weight="bold"),
+        ).grid(row=0, column=0, columnspan=2, padx=12, pady=(14, 10), sticky="ew")
+
+        settings_vars = {
+            "voice_enabled": tk.BooleanVar(value=bool(values.get("voice_enabled", True))),
+            "whisper_model": tk.StringVar(value=str(values.get("whisper_model", "base"))),
+            "sample_rate": tk.StringVar(value=str(values.get("sample_rate", 48000))),
+            "temperature": tk.StringVar(value=str(values.get("temperature", 0.3))),
+            "edge_voice": tk.StringVar(value=str(values.get("edge_voice", "pl-PL-MarekNeural"))),
+            "edge_rate": tk.StringVar(value=str(values.get("edge_rate", "+0%"))),
+        }
+
+        voice_checkbox = ctk.CTkCheckBox(
+            frame,
+            text="voice_enabled",
+            variable=settings_vars["voice_enabled"],
+            text_color=TEXT,
+            fg_color=CYAN,
+            hover_color="#0d4964",
+            border_color=CYAN,
+        )
+        voice_checkbox.grid(row=1, column=0, columnspan=2, padx=14, pady=8, sticky="w")
+
+        row = 2
+        for key, label in [
+            ("whisper_model", "whisper_model"),
+            ("sample_rate", "sample_rate"),
+            ("temperature", "temperature"),
+            ("edge_voice", "edge_voice"),
+            ("edge_rate", "edge_rate"),
+        ]:
+            self.add_settings_entry(frame, row, label, settings_vars[key])
+            row += 1
+
+        message_label = ctk.CTkLabel(
+            frame,
+            text=f"Błąd config.json: {error}" if error else "",
+            text_color="#ff5c7a" if error else GREEN_HOVER,
+            wraplength=350,
+            font=ctk.CTkFont(size=12, weight="bold"),
+        )
+        message_label.grid(row=row, column=0, columnspan=2, padx=14, pady=(8, 4), sticky="ew")
+
+        save_button = ctk.CTkButton(
+            frame,
+            text="Zapisz",
+            command=lambda: self.save_settings(config_data, settings_vars, message_label),
+            height=34,
+            fg_color=GREEN,
+            hover_color=GREEN_HOVER,
+            text_color="#041014",
+            border_width=1,
+            border_color=CYAN,
+            corner_radius=6,
+            font=ctk.CTkFont(size=13, weight="bold"),
+        )
+        save_button.grid(row=row + 1, column=0, padx=(14, 6), pady=(8, 14), sticky="ew")
+        if config_data is None:
+            save_button.configure(state="disabled")
+
+        close_button = ctk.CTkButton(
+            frame,
+            text="Zamknij",
+            command=window.destroy,
+            height=34,
+            fg_color="#15202b",
+            hover_color="#203244",
+            text_color=TEXT,
+            border_width=1,
+            border_color=CYAN,
+            corner_radius=6,
+            font=ctk.CTkFont(size=13, weight="bold"),
+        )
+        close_button.grid(row=row + 1, column=1, padx=(6, 14), pady=(8, 14), sticky="ew")
+
+    def add_settings_entry(self, parent, row, label, variable):
+        ctk.CTkLabel(
+            parent,
+            text=label,
+            text_color=MUTED,
+            anchor="w",
+            font=ctk.CTkFont(size=12, weight="bold"),
+        ).grid(row=row, column=0, padx=(14, 8), pady=7, sticky="ew")
+
+        entry = ctk.CTkEntry(
+            parent,
+            textvariable=variable,
+            fg_color="#050b12",
+            text_color=TEXT,
+            border_color="#14384a",
+            border_width=1,
+            corner_radius=6,
+        )
+        entry.grid(row=row, column=1, padx=(0, 14), pady=7, sticky="ew")
+
+    def read_settings_config(self):
+        try:
+            with CONFIG_PATH.open("r", encoding="utf-8") as config_file:
+                config_data = json.load(config_file)
+        except json.JSONDecodeError as e:
+            return None, str(e)
+        except OSError as e:
+            return None, str(e)
+
+        if not isinstance(config_data, dict):
+            return None, "config.json musi zawierać obiekt JSON"
+
+        return config_data, None
+
+    def save_settings(self, config_data, settings_vars, message_label):
+        if config_data is None:
+            message_label.configure(text="Nie można zapisać: config.json ma błąd.", text_color="#ff5c7a")
+            self.set_error_status("config.json ma błąd")
+            return
+
+        try:
+            updated_config = dict(config_data)
+            updated_config["voice_enabled"] = bool(settings_vars["voice_enabled"].get())
+            updated_config["whisper_model"] = settings_vars["whisper_model"].get().strip() or "base"
+            updated_config["sample_rate"] = int(settings_vars["sample_rate"].get().strip())
+            updated_config["temperature"] = float(settings_vars["temperature"].get().strip())
+            updated_config["edge_voice"] = settings_vars["edge_voice"].get().strip() or "pl-PL-MarekNeural"
+            updated_config["edge_rate"] = settings_vars["edge_rate"].get().strip() or "+0%"
+        except ValueError as e:
+            message_label.configure(text=f"Błąd wartości: {e}", text_color="#ff5c7a")
+            self.set_error_status(e)
+            return
+
+        try:
+            with CONFIG_PATH.open("w", encoding="utf-8") as config_file:
+                json.dump(updated_config, config_file, ensure_ascii=False, indent=2)
+                config_file.write("\n")
+
+            self.config = load_config()
+            self.update_system_status("Gotowy")
+            self.refresh_lm_studio_status()
+            message_label.configure(text="Zapisano ustawienia", text_color=GREEN_HOVER)
+            self.append_history("Zapisano ustawienia")
+            self.set_status("Gotowy")
+        except Exception as e:
+            message_label.configure(text=f"Błąd zapisu: {e}", text_color="#ff5c7a")
+            self.set_error_status(e)
 
     def build_apps_panel(self, parent):
         self.apps_panel = ctk.CTkFrame(

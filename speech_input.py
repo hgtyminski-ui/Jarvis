@@ -166,10 +166,10 @@ def listen_once(duration=None):
 
         config = load_config()
         microphone_device = config.get("microphone_device")
-        record_seconds = duration or config.get("record_seconds", 7)
+        duration_seconds = duration or 7
         sample_rate = config.get("sample_rate", 48000)
 
-        recording = record_audio(sd, sample_rate, microphone_device, record_seconds)
+        recording = record_audio(sd, sample_rate, microphone_device, duration_seconds)
         if recording is None:
             print("Nie udalo sie nagrac audio z mikrofonu.")
             print("Uruchom: python mic_test.py i sprawdz poprawny numer mikrofonu.")
