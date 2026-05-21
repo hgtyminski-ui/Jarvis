@@ -268,12 +268,15 @@ def close_app(target):
     if not process_name:
         return "unknown"
 
-    result = subprocess.run(
-        ["taskkill", "/IM", process_name, "/F"],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    try:
+        result = subprocess.run(
+            ["taskkill", "/IM", process_name, "/F"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return "not_running"
 
     if result.returncode != 0:
         return "not_running"
@@ -290,14 +293,17 @@ def is_app_running(target):
         return False
 
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    result = subprocess.run(
-        ["tasklist", "/FI", f"IMAGENAME eq {process_name}", "/NH"],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        text=True,
-        creationflags=creationflags,
-    )
+    try:
+        result = subprocess.run(
+            ["tasklist", "/FI", f"IMAGENAME eq {process_name}", "/NH"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            creationflags=creationflags,
+        )
+    except OSError:
+        return False
 
     if result.returncode != 0:
         return False

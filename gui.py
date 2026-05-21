@@ -147,7 +147,7 @@ class JarvisGUI(ctk.CTk):
 
         self.left_panel = self.create_panel(dashboard)
         self.left_panel.grid(row=0, column=0, padx=(0, 10), sticky="nsew")
-        self.build_quick_actions(self.left_panel)
+        self.build_app_launcher(self.left_panel)
 
         ctk.CTkFrame(dashboard, fg_color=CYAN, width=1, corner_radius=0).grid(
             row=0,
@@ -245,33 +245,9 @@ class JarvisGUI(ctk.CTk):
             font=ctk.CTkFont(size=13, weight="bold"),
         )
 
-    def build_quick_actions(self, parent):
+    def build_app_launcher(self, parent):
         parent.grid_columnconfigure(0, weight=1)
         parent.grid_rowconfigure(9, weight=1)
-
-        ctk.CTkLabel(
-            parent,
-            text="SZYBKIE AKCJE",
-            text_color=CYAN,
-            font=ctk.CTkFont(size=14, weight="bold"),
-        ).grid(row=0, column=0, padx=14, pady=(16, 10), sticky="ew")
-
-        actions = [
-            ("Spotify", "otwórz spotify"),
-            ("YouTube", "otwórz youtube"),
-            ("Steam", "otwórz steam"),
-            ("Discord", "otwórz discord"),
-            ("VS Code", "otwórz vscode"),
-            ("Netflix", "otwórz netflix"),
-        ]
-
-        for row, (label, command) in enumerate(actions, start=1):
-            button = self.create_action_button(
-                parent,
-                label,
-                lambda command=command: self.run_quick_action(command),
-            )
-            button.grid(row=row, column=0, padx=14, pady=5, sticky="ew")
 
         self.apps_toggle_button = self.create_action_button(
             parent,
@@ -280,7 +256,7 @@ class JarvisGUI(ctk.CTk):
             fg_color="#082a3a",
             hover_color="#0d4964",
         )
-        self.apps_toggle_button.grid(row=8, column=0, padx=14, pady=(16, 5), sticky="ew")
+        self.apps_toggle_button.grid(row=0, column=0, padx=14, pady=(16, 5), sticky="ew")
 
         ctk.CTkLabel(
             parent,
@@ -327,7 +303,22 @@ class JarvisGUI(ctk.CTk):
             corner_radius=6,
             font=ctk.CTkFont(size=13, weight="bold"),
         )
-        self.apps_close_button.grid(row=0, column=1, padx=(8, 12), pady=8, sticky="e")
+        self.apps_refresh_button = ctk.CTkButton(
+            header,
+            text="Odśwież aplikacje",
+            command=self.refresh_apps_list,
+            width=150,
+            height=28,
+            fg_color="#082a3a",
+            hover_color="#0d4964",
+            text_color=TEXT,
+            border_width=1,
+            border_color=CYAN,
+            corner_radius=6,
+            font=ctk.CTkFont(size=12, weight="bold"),
+        )
+        self.apps_refresh_button.grid(row=0, column=1, padx=(8, 8), pady=8, sticky="e")
+        self.apps_close_button.grid(row=0, column=2, padx=(0, 12), pady=8, sticky="e")
 
         self.apps_container = ctk.CTkScrollableFrame(
             self.apps_panel,
@@ -380,13 +371,18 @@ class JarvisGUI(ctk.CTk):
         if not hasattr(self, "apps_container"):
             return
 
-        for widget in self.apps_container.winfo_children():
-            widget.destroy()
+        try:
+            for widget in self.apps_container.winfo_children():
+                widget.destroy()
 
-        self.app_action_buttons = {}
-        apps = load_apps()
-        processes = load_processes()
-        categories = self.get_app_categories(apps)
+            self.app_action_buttons = {}
+            apps = load_apps()
+            processes = load_processes()
+            categories = self.get_app_categories(apps)
+        except Exception as e:
+            self.set_error_status(e)
+            self.after(1500, lambda: self.set_status("Gotowy"))
+            return
 
         if not apps:
             ctk.CTkLabel(
@@ -439,7 +435,10 @@ class JarvisGUI(ctk.CTk):
     def add_app_row(self, parent, row, app_key, display_name, processes):
         app_key = normalize_text(app_key)
         has_process = app_key in processes
-        running = is_app_running(app_key) if has_process else False
+        try:
+            running = is_app_running(app_key) if has_process else False
+        except Exception:
+            running = False
         action_text = "Zamknij" if running else "Otwórz"
         fg_color = RED if running else GREEN
         hover_color = RED_HOVER if running else GREEN_HOVER
@@ -491,6 +490,7 @@ class JarvisGUI(ctk.CTk):
         thread.start()
 
     def run_app_action_worker(self, target, action):
+        had_error = False
         try:
             if action == "close":
                 result = close_app(target)
@@ -509,9 +509,12 @@ class JarvisGUI(ctk.CTk):
 
             self.append_from_thread(message)
         except Exception as e:
+            had_error = True
+            self.set_error_status_from_thread(e)
             self.append_from_thread(f"Błąd: {e}")
         finally:
-            self.after(0, lambda: self.set_status("Gotowy"))
+            delay = 1500 if had_error else 0
+            self.after(delay, lambda: self.set_status("Gotowy"))
             self.after(1000, self.refresh_apps_list)
 
     def build_center(self, parent):
@@ -681,10 +684,12 @@ class JarvisGUI(ctk.CTk):
             self.update_system_status("Gotowy")
             self.append_history(f"{self.assistant_name} uruchomiony.")
         except ConfigError as e:
+            self.set_error_status(e)
             self.update_system_status("Błąd")
             self.append_history(f"Błąd konfiguracji: {e}")
             self.set_controls_enabled(False)
         except Exception as e:
+            self.set_error_status(e)
             self.update_system_status("Błąd")
             self.append_history(f"Błąd uruchamiania GUI: {e}")
             self.set_controls_enabled(False)
@@ -758,6 +763,15 @@ class JarvisGUI(ctk.CTk):
         clean_status = status.replace("...", "")
         self.status_label.configure(text=clean_status)
 
+    def set_error_status(self, detail=None):
+        status = "Błąd"
+        if detail:
+            status = f"Błąd: {str(detail).splitlines()[0][:48]}"
+        self.set_status(status)
+
+    def set_error_status_from_thread(self, detail=None):
+        self.after(0, lambda: self.set_error_status(detail))
+
     def set_controls_enabled(self, enabled):
         state = "normal" if enabled else "disabled"
         self.entry.configure(state=state)
@@ -829,12 +843,6 @@ class JarvisGUI(ctk.CTk):
         self.entry.delete("1.0", "end")
         self.submit_user_text(user_text)
 
-    def run_quick_action(self, command):
-        if self.is_busy:
-            return
-
-        self.submit_user_text(command)
-
     def submit_user_text(self, user_text):
         if user_text.lower() == "/listen":
             self.append_history("Przytrzymaj przycisk Listen, aby nagrywać.")
@@ -856,18 +864,24 @@ class JarvisGUI(ctk.CTk):
         return parse_local_action(text) is not None
 
     def run_text_worker(self, user_text):
+        had_error = False
         try:
             should_exit, output, tts_text = self.process_user_text_for_gui(user_text)
             self.append_from_thread(output)
+            if output and output.startswith("Błąd:"):
+                had_error = True
+                self.set_error_status_from_thread(output[len("Błąd:") :].strip())
             self.speak_in_background(tts_text)
 
             if should_exit:
                 self.after(300, self.destroy)
                 return
         except Exception as e:
+            had_error = True
+            self.set_error_status_from_thread(e)
             self.append_from_thread(f"Błąd: {e}")
         finally:
-            self.after(0, self.finish_work)
+            self.after(1500 if had_error else 0, self.finish_work)
 
     def on_listen_press(self, _event):
         if self.is_busy:
@@ -888,9 +902,10 @@ class JarvisGUI(ctk.CTk):
                 self.is_recording = False
                 self.finish_work()
         except Exception as e:
+            self.set_error_status(e)
             self.append_history(f"Błąd: {e}")
             self.is_recording = False
-            self.finish_work()
+            self.after(1500, self.finish_work)
 
     def on_listen_release(self, _event):
         if not self.is_recording:
@@ -898,12 +913,13 @@ class JarvisGUI(ctk.CTk):
 
         self.is_recording = False
         self.listen_button.configure(state="disabled")
-        self.set_status("Myślę")
+        self.set_status("Rozpoznaję")
 
         thread = threading.Thread(target=self.listen_release_worker, daemon=True)
         thread.start()
 
     def listen_release_worker(self):
+        had_error = False
         try:
             from speech_input import stop_recording_and_transcribe
 
@@ -919,11 +935,16 @@ class JarvisGUI(ctk.CTk):
 
             _should_exit, output, tts_text = self.process_user_text_for_gui(spoken_text)
             self.append_from_thread(output)
+            if output and output.startswith("Błąd:"):
+                had_error = True
+                self.set_error_status_from_thread(output[len("Błąd:") :].strip())
             self.speak_in_background(tts_text)
         except Exception as e:
+            had_error = True
+            self.set_error_status_from_thread(e)
             self.append_from_thread(f"Błąd: {e}")
         finally:
-            self.after(0, self.finish_work)
+            self.after(1500 if had_error else 0, self.finish_work)
 
     def process_user_text_for_gui(self, user_input):
         if user_input.startswith("/"):
@@ -999,6 +1020,8 @@ class JarvisGUI(ctk.CTk):
 
                 speak(text)
             except Exception as e:
+                self.set_error_status_from_thread(e)
+                self.after(1500, lambda: self.set_status("Gotowy"))
                 try:
                     print("Błąd TTS:", e, file=sys.__stderr__ or sys.stderr)
                 except Exception:
