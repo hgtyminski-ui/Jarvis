@@ -1,5 +1,7 @@
 import contextlib
+import datetime
 import io
+import math
 import sys
 import threading
 import tkinter as tk
@@ -12,6 +14,11 @@ from config import ConfigError, load_config
 from memory import add_assistant_message, add_user_message, create_messages
 from text_utils import normalize_text
 
+try:
+    import psutil
+except ImportError:
+    psutil = None
+
 
 BG = "#05070b"
 PANEL = "#0b111a"
@@ -20,7 +27,7 @@ CYAN = "#00d9ff"
 BLUE = "#1b70ff"
 TEXT = "#d9f7ff"
 MUTED = "#6f95a3"
-WARNING = "#ff4f7b"
+LINE = "#0c5a78"
 
 
 class JarvisGUI(ctk.CTk):
@@ -31,8 +38,8 @@ class JarvisGUI(ctk.CTk):
         super().__init__()
 
         self.title("Jarvis")
-        self.geometry("900x650")
-        self.minsize(820, 560)
+        self.geometry("1200x750")
+        self.minsize(980, 620)
         self.configure(fg_color=BG)
 
         self.assistant_name = "Jarvis"
@@ -41,7 +48,12 @@ class JarvisGUI(ctk.CTk):
         self.messages = None
         self.is_busy = False
         self.is_recording = False
+        self.is_fullscreen = False
+        self.pulse_phase = 0
         self.system_labels = {}
+
+        self.bind("<F11>", self.toggle_fullscreen)
+        self.bind("<Escape>", self.exit_fullscreen)
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
@@ -50,17 +62,20 @@ class JarvisGUI(ctk.CTk):
         self.build_dashboard()
         self.build_input_bar()
         self.load_jarvis()
+        self.update_clock_and_metrics()
+        self.animate_core()
 
     def build_header(self):
         header = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-        header.grid(row=0, column=0, padx=18, pady=(14, 8), sticky="ew")
+        header.grid(row=0, column=0, padx=22, pady=(16, 8), sticky="ew")
         header.grid_columnconfigure(0, weight=1)
+        header.grid_columnconfigure(1, weight=0)
 
         self.title_label = ctk.CTkLabel(
             header,
             text="JARVIS",
             text_color=CYAN,
-            font=ctk.CTkFont(family="Segoe UI", size=40, weight="bold"),
+            font=ctk.CTkFont(family="Segoe UI", size=46, weight="bold"),
         )
         self.title_label.grid(row=0, column=0, sticky="ew")
 
@@ -72,26 +87,65 @@ class JarvisGUI(ctk.CTk):
         )
         self.status_label.grid(row=1, column=0, sticky="ew")
 
+        self.close_button = ctk.CTkButton(
+            header,
+            text="X",
+            command=self.close_window,
+            width=34,
+            height=28,
+            fg_color="#17080d",
+            hover_color="#42101a",
+            text_color="#ff5c7a",
+            border_width=1,
+            border_color=CYAN,
+            corner_radius=6,
+            font=ctk.CTkFont(size=13, weight="bold"),
+        )
+        self.close_button.grid(row=0, column=1, padx=(12, 0), pady=(4, 0), sticky="ne")
+
+        ctk.CTkFrame(header, fg_color=CYAN, height=1, corner_radius=0).grid(
+            row=2,
+            column=0,
+            columnspan=2,
+            padx=130,
+            pady=(8, 0),
+            sticky="ew",
+        )
+
     def build_dashboard(self):
         dashboard = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-        dashboard.grid(row=1, column=0, padx=18, pady=(0, 12), sticky="nsew")
-        dashboard.grid_columnconfigure(0, weight=0, minsize=175)
-        dashboard.grid_columnconfigure(1, weight=1)
-        dashboard.grid_columnconfigure(2, weight=0, minsize=195)
+        dashboard.grid(row=1, column=0, padx=22, pady=(0, 12), sticky="nsew")
+        dashboard.grid_columnconfigure(0, weight=0, minsize=195)
+        dashboard.grid_columnconfigure(1, weight=0, minsize=1)
+        dashboard.grid_columnconfigure(2, weight=1)
+        dashboard.grid_columnconfigure(3, weight=0, minsize=1)
+        dashboard.grid_columnconfigure(4, weight=0, minsize=230)
         dashboard.grid_rowconfigure(0, weight=1)
 
         self.left_panel = self.create_panel(dashboard)
-        self.left_panel.grid(row=0, column=0, padx=(0, 12), sticky="nsew")
+        self.left_panel.grid(row=0, column=0, padx=(0, 10), sticky="nsew")
         self.build_quick_actions(self.left_panel)
 
+        ctk.CTkFrame(dashboard, fg_color=CYAN, width=1, corner_radius=0).grid(
+            row=0,
+            column=1,
+            sticky="ns",
+        )
+
         self.center_panel = self.create_panel(dashboard)
-        self.center_panel.grid(row=0, column=1, sticky="nsew")
+        self.center_panel.grid(row=0, column=2, padx=10, sticky="nsew")
         self.center_panel.grid_columnconfigure(0, weight=1)
         self.center_panel.grid_rowconfigure(1, weight=1)
         self.build_center(self.center_panel)
 
+        ctk.CTkFrame(dashboard, fg_color=CYAN, width=1, corner_radius=0).grid(
+            row=0,
+            column=3,
+            sticky="ns",
+        )
+
         self.right_panel = self.create_panel(dashboard)
-        self.right_panel.grid(row=0, column=2, padx=(12, 0), sticky="nsew")
+        self.right_panel.grid(row=0, column=4, padx=(10, 0), sticky="nsew")
         self.build_system_status(self.right_panel)
 
     def build_input_bar(self):
@@ -208,22 +262,22 @@ class JarvisGUI(ctk.CTk):
 
         self.core_canvas = tk.Canvas(
             core_frame,
-            width=250,
-            height=170,
+            width=420,
+            height=285,
             bg=PANEL_2,
             highlightthickness=0,
             bd=0,
         )
-        self.core_canvas.grid(row=0, column=0, pady=10)
+        self.core_canvas.grid(row=0, column=0, pady=12)
         self.core_canvas.bind("<Configure>", self.draw_core)
         self.draw_core()
 
         self.history = ctk.CTkTextbox(
             parent,
             wrap="word",
-            font=ctk.CTkFont(size=14),
+            font=ctk.CTkFont(family="Consolas", size=13),
             text_color=TEXT,
-            fg_color="#050b12",
+            fg_color="#03070c",
             border_width=1,
             border_color="#14384a",
             corner_radius=8,
@@ -241,17 +295,45 @@ class JarvisGUI(ctk.CTk):
             font=ctk.CTkFont(size=14, weight="bold"),
         ).grid(row=0, column=0, padx=14, pady=(16, 12), sticky="ew")
 
-        self.add_status_row(parent, 1, "LM Studio", "Nieznany")
-        self.add_status_row(parent, 2, "Model", "Nieznany")
-        self.add_status_row(parent, 3, "Tryb głosu", "Nieznany")
-        self.add_status_row(parent, 4, "Mikrofon", "Nieznany")
+        clock_frame = ctk.CTkFrame(
+            parent,
+            fg_color="#07101a",
+            border_width=1,
+            border_color=LINE,
+            corner_radius=8,
+        )
+        clock_frame.grid(row=1, column=0, padx=14, pady=(0, 10), sticky="ew")
+        clock_frame.grid_columnconfigure(0, weight=1)
+
+        self.time_label = ctk.CTkLabel(
+            clock_frame,
+            text="--:--:--",
+            text_color=CYAN,
+            font=ctk.CTkFont(family="Consolas", size=24, weight="bold"),
+        )
+        self.time_label.grid(row=0, column=0, padx=10, pady=(10, 0), sticky="ew")
+
+        self.date_label = ctk.CTkLabel(
+            clock_frame,
+            text="---- -- --",
+            text_color=MUTED,
+            font=ctk.CTkFont(family="Consolas", size=12),
+        )
+        self.date_label.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="ew")
+
+        self.add_status_row(parent, 2, "LM Studio", "Nieznany")
+        self.add_status_row(parent, 3, "Model", "Nieznany")
+        self.add_status_row(parent, 4, "Tryb głosu", "Nieznany")
+        self.add_status_row(parent, 5, "Mikrofon", "Nieznany")
+        self.add_status_row(parent, 6, "CPU", "brak danych")
+        self.add_status_row(parent, 7, "RAM", "brak danych")
 
         ctk.CTkLabel(
             parent,
             text="HUD LINK ACTIVE",
             text_color=MUTED,
             font=ctk.CTkFont(size=11),
-        ).grid(row=6, column=0, padx=14, pady=(24, 0), sticky="s")
+        ).grid(row=8, column=0, padx=14, pady=(18, 0), sticky="s")
 
     def add_status_row(self, parent, row, name, value):
         frame = ctk.CTkFrame(parent, fg_color="#07101a", corner_radius=6)
@@ -280,29 +362,56 @@ class JarvisGUI(ctk.CTk):
         canvas = self.core_canvas
         canvas.delete("all")
 
-        width = max(canvas.winfo_width(), 250)
-        height = max(canvas.winfo_height(), 170)
+        width = max(canvas.winfo_width(), 420)
+        height = max(canvas.winfo_height(), 285)
         cx = width / 2
         cy = height / 2
-        radius = min(width, height) * 0.36
+        pulse = 1 + math.sin(self.pulse_phase / 10) * 0.05
+        radius = min(width, height) * 0.36 * pulse
 
-        canvas.create_oval(cx - radius, cy - radius, cx + radius, cy + radius, outline=CYAN, width=2)
-        canvas.create_oval(cx - radius * 0.72, cy - radius * 0.72, cx + radius * 0.72, cy + radius * 0.72, outline=BLUE, width=2)
-        canvas.create_oval(cx - radius * 0.28, cy - radius * 0.28, cx + radius * 0.28, cy + radius * 0.28, outline="#79efff", width=1)
+        canvas.create_line(22, 28, width * 0.28, 28, fill=LINE, width=1)
+        canvas.create_line(width * 0.72, 28, width - 22, 28, fill=LINE, width=1)
+        canvas.create_line(22, height - 28, width * 0.28, height - 28, fill=LINE, width=1)
+        canvas.create_line(width * 0.72, height - 28, width - 22, height - 28, fill=LINE, width=1)
 
-        for angle in range(0, 360, 45):
-            import math
+        for scale, color, line_width in [
+            (1.18, "#06445c", 1),
+            (1.0, CYAN, 2),
+            (0.82, "#18a8ff", 1),
+            (0.62, BLUE, 2),
+            (0.42, "#79efff", 1),
+            (0.23, "#d6fbff", 1),
+        ]:
+            r = radius * scale
+            canvas.create_oval(cx - r, cy - r, cx + r, cy + r, outline=color, width=line_width)
 
-            radians = math.radians(angle)
-            x1 = cx + math.cos(radians) * (radius + 8)
-            y1 = cy + math.sin(radians) * (radius + 8)
-            x2 = cx + math.cos(radians) * (radius + 24)
-            y2 = cy + math.sin(radians) * (radius + 24)
+        for angle in range(0, 360, 30):
+            radians = math.radians(angle + self.pulse_phase * 1.4)
+            inner = radius * 1.02
+            outer = radius * 1.22
+            x1 = cx + math.cos(radians) * inner
+            y1 = cy + math.sin(radians) * inner
+            x2 = cx + math.cos(radians) * outer
+            y2 = cy + math.sin(radians) * outer
             canvas.create_line(x1, y1, x2, y2, fill=CYAN, width=1)
 
-        canvas.create_text(cx, cy - 8, text="CORE", fill=TEXT, font=("Segoe UI", 16, "bold"))
-        canvas.create_text(cx, cy + 16, text="ONLINE", fill=CYAN, font=("Segoe UI", 12, "bold"))
-        canvas.create_line(20, height - 22, width - 20, height - 22, fill="#0e4c67", width=1)
+        for angle in range(0, 360, 90):
+            radians = math.radians(angle - self.pulse_phase)
+            arc_radius = radius * 0.72
+            x = cx + math.cos(radians) * arc_radius
+            y = cy + math.sin(radians) * arc_radius
+            canvas.create_oval(x - 3, y - 3, x + 3, y + 3, fill=CYAN, outline="")
+
+        canvas.create_text(cx, cy - 10, text="CORE", fill=TEXT, font=("Segoe UI", 24, "bold"))
+        canvas.create_text(cx, cy + 22, text="ONLINE", fill=CYAN, font=("Segoe UI", 14, "bold"))
+        canvas.create_line(26, height - 24, width - 26, height - 24, fill="#0e4c67", width=1)
+        canvas.create_text(width - 58, height - 40, text="PULSE", fill=MUTED, font=("Consolas", 10))
+
+    def animate_core(self):
+        self.pulse_phase = (self.pulse_phase + 1) % 360
+        if hasattr(self, "core_canvas"):
+            self.draw_core()
+        self.after(80, self.animate_core)
 
     def load_jarvis(self):
         try:
@@ -323,6 +432,9 @@ class JarvisGUI(ctk.CTk):
 
     def update_system_status(self, lm_status=None):
         if not self.config:
+            label = self.system_labels.get("LM Studio")
+            if label and lm_status:
+                label.configure(text=str(lm_status))
             return
 
         values = {
@@ -336,6 +448,52 @@ class JarvisGUI(ctk.CTk):
             label = self.system_labels.get(name)
             if label:
                 label.configure(text=str(value))
+
+    def update_clock_and_metrics(self):
+        now = datetime.datetime.now()
+
+        if hasattr(self, "time_label"):
+            self.time_label.configure(text=now.strftime("%H:%M:%S"))
+        if hasattr(self, "date_label"):
+            self.date_label.configure(text=now.strftime("%Y-%m-%d"))
+
+        cpu_label = self.system_labels.get("CPU")
+        ram_label = self.system_labels.get("RAM")
+
+        if psutil is None:
+            if cpu_label:
+                cpu_label.configure(text="brak danych")
+            if ram_label:
+                ram_label.configure(text="brak danych")
+        else:
+            try:
+                cpu = psutil.cpu_percent(interval=None)
+                ram = psutil.virtual_memory().percent
+                if cpu_label:
+                    cpu_label.configure(text=f"{cpu:.0f}%")
+                if ram_label:
+                    ram_label.configure(text=f"{ram:.0f}%")
+            except Exception:
+                if cpu_label:
+                    cpu_label.configure(text="brak danych")
+                if ram_label:
+                    ram_label.configure(text="brak danych")
+
+        self.after(1000, self.update_clock_and_metrics)
+
+    def toggle_fullscreen(self, _event=None):
+        self.is_fullscreen = not self.is_fullscreen
+        self.attributes("-fullscreen", self.is_fullscreen)
+        return "break"
+
+    def exit_fullscreen(self, _event=None):
+        if self.is_fullscreen:
+            self.is_fullscreen = False
+            self.attributes("-fullscreen", False)
+        return "break"
+
+    def close_window(self):
+        self.destroy()
 
     def set_status(self, status):
         clean_status = status.replace("...", "")
@@ -369,8 +527,12 @@ class JarvisGUI(ctk.CTk):
         if not text:
             return
 
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        lines = [line for line in text.rstrip().splitlines() if line.strip()]
+        formatted_text = "".join(f"[{timestamp}] {line}\n" for line in lines)
+
         self.history.configure(state="normal")
-        self.history.insert("end", text.rstrip() + "\n")
+        self.history.insert("end", formatted_text)
         self.history.see("end")
         self.history.configure(state="disabled")
 
