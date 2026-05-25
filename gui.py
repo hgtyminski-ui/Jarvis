@@ -16,9 +16,12 @@ except ImportError:
 
 from actions import (
     close_app,
+    create_note,
+    delete_note,
     is_app_running,
     load_app_categories,
     load_apps,
+    load_notes,
     load_processes,
     open_app,
     parse_ai_json,
@@ -87,6 +90,11 @@ class JarvisGUI(ctk.CTk):
         self.lm_server_label = None
         self.lm_model_label = None
         self.settings_window = None
+        self.notes_window = None
+        self.notes_list_frame = None
+        self.note_window = None
+        self.note_preview_window = None
+        self.pending_note_content = None
 
         self.bind("<F11>", self.toggle_fullscreen)
         self.bind("<Escape>", self.exit_fullscreen)
@@ -280,12 +288,465 @@ class JarvisGUI(ctk.CTk):
         )
         self.settings_button.grid(row=1, column=0, padx=14, pady=5, sticky="ew")
 
+        self.notes_toggle_button = self.create_action_button(
+            parent,
+            "Notatki",
+            self.toggle_notes_panel,
+            fg_color="#0d2f45",
+            hover_color="#124f70",
+        )
+        self.notes_toggle_button.grid(row=2, column=0, padx=14, pady=5, sticky="ew")
+
         ctk.CTkLabel(
             parent,
             text="LOCAL COMMAND GRID",
             text_color=MUTED,
             font=ctk.CTkFont(size=11),
         ).grid(row=10, column=0, padx=14, pady=(18, 0), sticky="s")
+
+    def toggle_notes_panel(self):
+        self.open_notes_window()
+
+    def open_notes_window(self):
+        if self.notes_window and self.notes_window.winfo_exists():
+            self.notes_window.focus()
+            self.refresh_notes_list()
+            return
+
+        window = ctk.CTkToplevel(self)
+        window.title("Notatki")
+        window.geometry("620x560")
+        window.minsize(520, 420)
+        window.configure(fg_color=BG)
+        window.transient(self)
+        window.grab_set()
+        self.notes_window = window
+
+        def close_window():
+            self.notes_window = None
+            self.notes_list_frame = None
+            window.destroy()
+
+        window.protocol("WM_DELETE_WINDOW", close_window)
+
+        frame = ctk.CTkFrame(
+            window,
+            fg_color=PANEL,
+            border_width=1,
+            border_color=CYAN,
+            corner_radius=8,
+        )
+        frame.pack(fill="both", expand=True, padx=16, pady=16)
+        frame.grid_columnconfigure(0, weight=1)
+        frame.grid_rowconfigure(2, weight=1)
+
+        ctk.CTkLabel(
+            frame,
+            text="NOTATKI",
+            text_color=CYAN,
+            font=ctk.CTkFont(size=16, weight="bold"),
+        ).grid(row=0, column=0, padx=14, pady=(14, 10), sticky="ew")
+
+        button_row = ctk.CTkFrame(frame, fg_color="transparent")
+        button_row.grid(row=1, column=0, padx=14, pady=(0, 10), sticky="ew")
+        for column in range(3):
+            button_row.grid_columnconfigure(column, weight=1)
+
+        new_button = ctk.CTkButton(
+            button_row,
+            text="Nowa notatka",
+            command=self.open_new_note_window,
+            height=32,
+            fg_color=GREEN,
+            hover_color=GREEN_HOVER,
+            text_color="#041014",
+            border_width=1,
+            border_color=CYAN,
+            corner_radius=6,
+            font=ctk.CTkFont(size=12, weight="bold"),
+        )
+        new_button.grid(row=0, column=0, padx=(0, 6), sticky="ew")
+
+        refresh_button = ctk.CTkButton(
+            button_row,
+            text="Odśwież notatki",
+            command=self.refresh_notes_list,
+            height=32,
+            fg_color="#082a3a",
+            hover_color="#0d4964",
+            text_color=TEXT,
+            border_width=1,
+            border_color=CYAN,
+            corner_radius=6,
+            font=ctk.CTkFont(size=12, weight="bold"),
+        )
+        refresh_button.grid(row=0, column=1, padx=6, sticky="ew")
+
+        close_button = ctk.CTkButton(
+            button_row,
+            text="Zamknij",
+            command=close_window,
+            height=32,
+            fg_color="#15202b",
+            hover_color="#203244",
+            text_color=TEXT,
+            border_width=1,
+            border_color=CYAN,
+            corner_radius=6,
+            font=ctk.CTkFont(size=12, weight="bold"),
+        )
+        close_button.grid(row=0, column=2, padx=(6, 0), sticky="ew")
+
+        self.notes_list_frame = ctk.CTkScrollableFrame(
+            frame,
+            fg_color="#050b12",
+            border_width=1,
+            border_color=LINE,
+            corner_radius=8,
+            scrollbar_button_color="#0d4964",
+            scrollbar_button_hover_color=CYAN,
+        )
+        self.notes_list_frame.grid(row=2, column=0, padx=14, pady=(0, 14), sticky="nsew")
+        self.notes_list_frame.grid_columnconfigure(0, weight=1)
+        self.refresh_notes_list()
+
+    def refresh_notes_list(self):
+        if not self.notes_list_frame:
+            return
+
+        for widget in self.notes_list_frame.winfo_children():
+            widget.destroy()
+
+        try:
+            notes = load_notes()
+        except Exception as e:
+            self.set_error_status(e)
+            self.after(1500, lambda: self.set_status("Gotowy"))
+            ctk.CTkLabel(
+                self.notes_list_frame,
+                text="Błąd ładowania notatek",
+                text_color="#ff5c7a",
+                font=ctk.CTkFont(size=12, weight="bold"),
+            ).grid(row=0, column=0, padx=12, pady=12, sticky="ew")
+            return
+
+        if not notes:
+            ctk.CTkLabel(
+                self.notes_list_frame,
+                text="Brak notatek",
+                text_color=MUTED,
+                font=ctk.CTkFont(size=12),
+            ).grid(row=0, column=0, padx=12, pady=12, sticky="ew")
+            return
+
+        for index, note in enumerate(notes):
+            self.add_note_row(self.notes_list_frame, index, note)
+
+    def add_note_row(self, parent, row, note):
+        title = str(note.get("title") or "Bez tytułu")
+        created_at = self.format_note_timestamp(note.get("created_at", ""))
+        note_path = note.get("path", "")
+
+        note_frame = ctk.CTkFrame(
+            parent,
+            fg_color="#07101a",
+            border_width=1,
+            border_color="#14384a",
+            corner_radius=6,
+        )
+        note_frame.grid(row=row, column=0, padx=8, pady=4, sticky="ew")
+        note_frame.grid_columnconfigure(0, weight=1)
+        note_frame.grid_columnconfigure(1, weight=0)
+
+        title_button = ctk.CTkButton(
+            note_frame,
+            text=title,
+            command=lambda selected_note=note: self.open_note_preview(selected_note),
+            anchor="w",
+            height=30,
+            fg_color="#07101a",
+            hover_color="#0b2432",
+            text_color=TEXT,
+            border_width=0,
+            corner_radius=4,
+            font=ctk.CTkFont(size=12, weight="bold"),
+        )
+        title_button.grid(row=0, column=0, padx=(8, 6), pady=(7, 0), sticky="ew")
+
+        ctk.CTkLabel(
+            note_frame,
+            text=created_at,
+            text_color=MUTED,
+            anchor="w",
+            font=ctk.CTkFont(size=10),
+        ).grid(row=1, column=0, padx=12, pady=(0, 7), sticky="ew")
+
+        delete_button = ctk.CTkButton(
+            note_frame,
+            text="Usuń",
+            command=lambda path=note_path: self.delete_note_from_gui(path),
+            width=70,
+            height=28,
+            fg_color=RED,
+            hover_color=RED_HOVER,
+            text_color="#fff5f7",
+            border_width=1,
+            border_color=CYAN,
+            corner_radius=6,
+            font=ctk.CTkFont(size=11, weight="bold"),
+        )
+        delete_button.grid(row=0, column=1, rowspan=2, padx=(0, 8), pady=8, sticky="e")
+
+    def format_note_timestamp(self, value):
+        if not value:
+            return "brak daty"
+
+        try:
+            return datetime.datetime.fromisoformat(str(value)).strftime("%Y-%m-%d %H:%M")
+        except ValueError:
+            return str(value)[:16]
+
+    def open_note_preview(self, note):
+        if self.note_preview_window and self.note_preview_window.winfo_exists():
+            self.note_preview_window.destroy()
+
+        title = str(note.get("title") or "Bez tytułu")
+        content = str(note.get("content") or "")
+        created_at = self.format_note_timestamp(note.get("created_at", ""))
+        note_path = note.get("path", "")
+
+        window = ctk.CTkToplevel(self.notes_window or self)
+        window.title("Podgląd notatki")
+        window.geometry("620x500")
+        window.minsize(520, 420)
+        window.configure(fg_color=BG)
+        window.transient(self.notes_window or self)
+        window.grab_set()
+        self.note_preview_window = window
+
+        def close_window():
+            self.note_preview_window = None
+            window.destroy()
+
+        window.protocol("WM_DELETE_WINDOW", close_window)
+
+        frame = ctk.CTkFrame(
+            window,
+            fg_color=PANEL,
+            border_width=1,
+            border_color=CYAN,
+            corner_radius=8,
+        )
+        frame.pack(fill="both", expand=True, padx=16, pady=16)
+        frame.grid_columnconfigure(0, weight=1)
+        frame.grid_rowconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            frame,
+            text=title,
+            text_color=CYAN,
+            wraplength=540,
+            font=ctk.CTkFont(size=18, weight="bold"),
+        ).grid(row=0, column=0, padx=14, pady=(14, 10), sticky="ew")
+
+        content_box = ctk.CTkTextbox(
+            frame,
+            wrap="word",
+            font=ctk.CTkFont(size=13),
+            text_color=TEXT,
+            fg_color="#050b12",
+            border_width=1,
+            border_color="#14384a",
+            corner_radius=6,
+        )
+        content_box.grid(row=1, column=0, padx=14, pady=(0, 10), sticky="nsew")
+        content_box.insert("1.0", content or "Brak treści")
+        content_box.configure(state="disabled")
+
+        ctk.CTkLabel(
+            frame,
+            text=created_at,
+            text_color=MUTED,
+            font=ctk.CTkFont(size=12),
+        ).grid(row=2, column=0, padx=14, pady=(0, 10), sticky="ew")
+
+        button_row = ctk.CTkFrame(frame, fg_color="transparent")
+        button_row.grid(row=3, column=0, padx=14, pady=(0, 14), sticky="ew")
+        for column in range(2):
+            button_row.grid_columnconfigure(column, weight=1)
+
+        delete_button = ctk.CTkButton(
+            button_row,
+            text="Usuń",
+            command=lambda path=note_path, top=window: self.delete_note_from_gui(path, top),
+            height=34,
+            fg_color=RED,
+            hover_color=RED_HOVER,
+            text_color="#fff5f7",
+            border_width=1,
+            border_color=CYAN,
+            corner_radius=6,
+            font=ctk.CTkFont(size=13, weight="bold"),
+        )
+        delete_button.grid(row=0, column=0, padx=(0, 6), sticky="ew")
+
+        close_button = ctk.CTkButton(
+            button_row,
+            text="Zamknij",
+            command=close_window,
+            height=34,
+            fg_color="#15202b",
+            hover_color="#203244",
+            text_color=TEXT,
+            border_width=1,
+            border_color=CYAN,
+            corner_radius=6,
+            font=ctk.CTkFont(size=13, weight="bold"),
+        )
+        close_button.grid(row=0, column=1, padx=(6, 0), sticky="ew")
+
+    def delete_note_from_gui(self, note_path, window_to_close=None):
+        self.set_status("Wykonuję")
+        result = delete_note(note_path)
+
+        if result in ["deleted", "missing"]:
+            if window_to_close and window_to_close.winfo_exists():
+                window_to_close.destroy()
+                if window_to_close == self.note_preview_window:
+                    self.note_preview_window = None
+            self.refresh_notes_list()
+            self.set_status("Gotowy")
+            return
+
+        self.set_error_status("nie udało się usunąć notatki")
+        self.after(1500, lambda: self.set_status("Gotowy"))
+
+    def open_new_note_window(self):
+        if self.note_window and self.note_window.winfo_exists():
+            self.note_window.focus()
+            return
+
+        window = ctk.CTkToplevel(self.notes_window or self)
+        window.title("Nowa notatka")
+        window.geometry("460x430")
+        window.resizable(False, False)
+        window.configure(fg_color=BG)
+        window.transient(self.notes_window or self)
+        window.grab_set()
+        self.note_window = window
+
+        def close_window():
+            self.note_window = None
+            window.destroy()
+
+        window.protocol("WM_DELETE_WINDOW", close_window)
+
+        frame = ctk.CTkFrame(
+            window,
+            fg_color=PANEL,
+            border_width=1,
+            border_color=CYAN,
+            corner_radius=8,
+        )
+        frame.pack(fill="both", expand=True, padx=16, pady=16)
+        frame.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            frame,
+            text="NOWA NOTATKA",
+            text_color=CYAN,
+            font=ctk.CTkFont(size=16, weight="bold"),
+        ).grid(row=0, column=0, padx=14, pady=(14, 10), sticky="ew")
+
+        ctk.CTkLabel(
+            frame,
+            text="Tytuł",
+            text_color=MUTED,
+            anchor="w",
+            font=ctk.CTkFont(size=12, weight="bold"),
+        ).grid(row=1, column=0, padx=14, pady=(4, 3), sticky="ew")
+
+        title_entry = ctk.CTkEntry(
+            frame,
+            fg_color="#050b12",
+            text_color=TEXT,
+            border_color="#14384a",
+            border_width=1,
+            corner_radius=6,
+        )
+        title_entry.grid(row=2, column=0, padx=14, pady=(0, 8), sticky="ew")
+
+        ctk.CTkLabel(
+            frame,
+            text="Treść",
+            text_color=MUTED,
+            anchor="w",
+            font=ctk.CTkFont(size=12, weight="bold"),
+        ).grid(row=3, column=0, padx=14, pady=(4, 3), sticky="ew")
+
+        content_box = ctk.CTkTextbox(
+            frame,
+            height=150,
+            wrap="word",
+            font=ctk.CTkFont(size=13),
+            text_color=TEXT,
+            fg_color="#050b12",
+            border_width=1,
+            border_color="#14384a",
+            corner_radius=6,
+        )
+        content_box.grid(row=4, column=0, padx=14, pady=(0, 8), sticky="ew")
+
+        message_label = ctk.CTkLabel(
+            frame,
+            text="",
+            text_color=GREEN_HOVER,
+            wraplength=390,
+            font=ctk.CTkFont(size=12, weight="bold"),
+        )
+        message_label.grid(row=5, column=0, padx=14, pady=(0, 6), sticky="ew")
+
+        save_button = ctk.CTkButton(
+            frame,
+            text="Zapisz",
+            command=lambda: self.save_note_from_window(title_entry, content_box, message_label),
+            height=34,
+            fg_color=GREEN,
+            hover_color=GREEN_HOVER,
+            text_color="#041014",
+            border_width=1,
+            border_color=CYAN,
+            corner_radius=6,
+            font=ctk.CTkFont(size=13, weight="bold"),
+        )
+        save_button.grid(row=6, column=0, padx=14, pady=(0, 14), sticky="ew")
+        title_entry.focus_set()
+
+    def save_note_from_window(self, title_entry, content_box, message_label):
+        title = title_entry.get().strip()
+        content = content_box.get("1.0", "end-1c").strip()
+
+        self.set_status("Wykonuję")
+        try:
+            result = create_note(content, title)
+        except Exception as e:
+            message_label.configure(text=f"Błąd zapisu: {e}", text_color="#ff5c7a")
+            self.set_error_status(e)
+            self.after(1500, lambda: self.set_status("Gotowy"))
+            return
+
+        if result != "saved":
+            message_label.configure(text="Brakuje treści notatki.", text_color="#ff5c7a")
+            self.set_error_status("brakuje treści notatki")
+            self.after(1500, lambda: self.set_status("Gotowy"))
+            return
+
+        message_label.configure(text="Notatka zapisana.", text_color=GREEN_HOVER)
+        self.append_history(f"{self.assistant_name}: Notatka zapisana.")
+        content_box.delete("1.0", "end")
+        title_entry.delete(0, "end")
+        self.refresh_notes_list()
+        self.set_status("Gotowy")
 
     def open_settings_window(self):
         if self.settings_window and self.settings_window.winfo_exists():
@@ -1330,6 +1791,9 @@ class JarvisGUI(ctk.CTk):
         if text.startswith("/"):
             return True
 
+        if self.pending_note_content is not None:
+            return True
+
         return parse_local_action(text) is not None
 
     def run_text_worker(self, user_text):
@@ -1435,6 +1899,29 @@ class JarvisGUI(ctk.CTk):
             return should_exit, output, None
 
         normalized_user_input = normalize_text(user_input)
+
+        if self.pending_note_content is not None:
+            if normalized_user_input in ["anuluj", "cancel"]:
+                self.pending_note_content = None
+                return False, f"{self.assistant_name}: Anulowano notatkę.", "Anulowano notatkę."
+
+            title = user_input.strip()
+            if not title:
+                question = "Jaki ma być tytuł notatki?"
+                return False, f"{self.assistant_name}: {question}", question
+
+            try:
+                result = create_note(self.pending_note_content, title)
+            except Exception as e:
+                return False, f"Błąd: {e}", None
+
+            self.pending_note_content = None
+            if result == "saved":
+                self.after(0, self.refresh_notes_list)
+                return False, f"{self.assistant_name}: Notatka zapisana.", "Notatka zapisana."
+
+            return False, f"{self.assistant_name}: Brakuje treści notatki.", None
+
         normalized_exit_commands = [
             normalize_text(command) for command in self.config["exit_commands"]
         ]
@@ -1444,6 +1931,15 @@ class JarvisGUI(ctk.CTk):
 
         local_action = parse_local_action(user_input)
         if local_action:
+            if local_action.get("action") == "create_note" and local_action.get("needs_title"):
+                content = local_action.get("content", "").strip()
+                if not content:
+                    return False, f"{self.assistant_name}: Brakuje treści notatki.", None
+
+                self.pending_note_content = content
+                question = "Jaki ma być tytuł notatki?"
+                return False, f"{self.assistant_name}: {question}", question
+
             import json
             from main import handle_ai_answer
 
@@ -1454,6 +1950,8 @@ class JarvisGUI(ctk.CTk):
                     self.config,
                 )
             )
+            if local_action.get("action") == "create_note":
+                self.after(0, self.refresh_notes_list)
             return False, output, None
 
         add_user_message(self.messages, normalized_user_input)
@@ -1481,11 +1979,22 @@ class JarvisGUI(ctk.CTk):
             response = data.get("response", "")
             return f"{self.assistant_name}: {response}", response
 
+        if action == "create_note" and (data.get("needs_title") or not str(data.get("title") or "").strip()):
+            content = str(data.get("content") or "").strip()
+            if not content:
+                return f"{self.assistant_name}: Brakuje treści notatki.", None
+
+            self.pending_note_content = content
+            question = "Jaki ma być tytuł notatki?"
+            return f"{self.assistant_name}: {question}", question
+
         from main import handle_ai_answer
 
         _result, output = self.capture_output(
             lambda: handle_ai_answer(answer, self.assistant_name, self.config)
         )
+        if action == "create_note":
+            self.after(0, self.refresh_notes_list)
         return output, None
 
     def speak_in_background(self, text):

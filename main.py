@@ -1,187 +1,69 @@
-import json
-
-from actions import (
-    close_app,
-    open_app,
-    open_website,
-    parse_ai_json,
-    parse_local_action,
-    resolve_alias,
-    spotify_search,
-)
 from config import ConfigError, load_config
-from memory import add_assistant_message, add_user_message, clear_messages, create_messages
-from text_utils import normalize_text
+from jarvis_core import (
+    handle_ai_answer as core_handle_ai_answer,
+    handle_local_command as core_handle_local_command,
+    process_user_text as core_process_user_text,
+    show_help_text,
+)
+from memory import create_messages
+
+
+def print_result(result):
+    if result and result.response:
+        print(result.response)
 
 
 def show_help():
-    print("Dostępne komendy:")
-    print("/help - pokazuje dostępne komendy")
-    print("/exit - kończy program")
-    print("/status - sprawdza połączenie z LM Studio")
-    print("/clear - czyści historię rozmowy z RAM")
-    print("/listen - nagrywa krótką wiadomość z mikrofonu")
-    print("/close <aplikacja> - zamyka aplikację z processes.json")
+    print(show_help_text())
 
 
 def handle_local_command(command, assistant_name, client, config, messages):
-    if command == "/help":
-        show_help()
-        return False
-
-    if command == "/exit":
-        print(f"{assistant_name}: Wyłączam się. Do zobaczenia!")
-        return True
-
-    if command == "/status":
-        from ai_client import check_connection
-
-        try:
-            check_connection(client, config)
-            print("Status: połączenie z LM Studio działa.")
-        except Exception as e:
-            print("Status: brak połączenia z LM Studio.")
-            print("Błąd:", e)
-        return False
-
-    if command == "/clear":
-        clear_messages(messages, config)
-        print("Historia rozmowy w RAM została wyczyszczona.")
-        return False
-
-    local_action = parse_local_action(command.lstrip("/"))
-    if local_action:
-        handle_ai_answer(json.dumps(local_action), assistant_name, config)
-        return False
-
-    print("Nieznana komenda lokalna. Wpisz /help, aby zobaczyć dostępne komendy.")
-    return False
+    result = core_handle_local_command(command, assistant_name, client, config, messages)
+    print_result(result)
+    return result.should_exit
 
 
 def handle_ai_answer(answer, assistant_name, config):
-    data = parse_ai_json(answer)
-    action = data.get("action")
-
-    if action == "chat":
-        response = data.get("response", "")
-        print(f"{assistant_name}:", response)
-
-        if config.get("voice_enabled", False):
-            from voice import speak
-
-            speak(response)
-        return
-
-    if action == "open_website":
-        target = resolve_alias(data.get("target", ""))
-        if open_website(target):
-            print(f"{assistant_name}: Otwieram stronę: {target}")
-        else:
-            print(f"{assistant_name}: Nie obsługuję tej strony.")
-        return
-
-    if action == "open_app":
-        target = resolve_alias(data.get("target", ""))
-
-        try:
-            result = open_app(target)
-        except Exception as e:
-            print(f"{assistant_name}: Nie udało się uruchomić aplikacji: {target}")
-            print("Błąd:", e)
-            return
-
-        if result == "opened":
-            print(f"{assistant_name}: Otwieram aplikację: {target}")
-        else:
-            print(f"{assistant_name}: Nie znam aplikacji: {target}. Dodaj ją do apps.json.")
-        return
-
-    if action == "close_app":
-        target = resolve_alias(data.get("target", ""))
-
-        try:
-            result = close_app(target)
-        except Exception as e:
-            print(f"{assistant_name}: Nie udało się zamknąć aplikacji: {target}")
-            print("Błąd:", e)
-            return
-
-        if result == "closed":
-            print(f"{assistant_name}: Zamykam {target}.")
-        elif result == "not_running":
-            print(f"{assistant_name}: Nie znalazłem uruchomionego procesu dla: {target}.")
-        else:
-            print(f"{assistant_name}: Nie znam aplikacji: {target}. Dodaj ją do processes.json.")
-        return
-
-    if action == "spotify_search":
-        query = data.get("query", "")
-
-        if spotify_search(query):
-            print(f"{assistant_name}: Szukam w Spotify: {query}")
-        else:
-            print(f"{assistant_name}: Nie podano czego szukać w Spotify.")
-        return
-
-    print(f"{assistant_name}: Nie rozumiem akcji zwróconej przez AI.")
+    result = core_handle_ai_answer(answer, assistant_name, config)
+    print_result(result)
+    return result
 
 
-def process_user_text(user_input, assistant_name, client, config, messages):
-    if user_input.startswith("/"):
-        return handle_local_command(
-            user_input.strip().lower(),
-            assistant_name,
-            client,
-            config,
-            messages,
-        )
+def process_user_text(user_input, assistant_name, client, config, messages, pending_note=None):
+    result = core_process_user_text(
+        user_input,
+        assistant_name,
+        client,
+        config,
+        messages,
+        pending_note,
+    )
+    print_result(result)
 
-    normalized_user_input = normalize_text(user_input)
-    normalized_exit_commands = [
-        normalize_text(command) for command in config["exit_commands"]
-    ]
+    if config.get("voice_enabled", False) and result.tts_text:
+        from voice import speak
 
-    if normalized_user_input in normalized_exit_commands:
-        print(f"{assistant_name}: Wyłączam się. Do zobaczenia!")
-        return True
+        speak(result.tts_text)
 
-    local_action = parse_local_action(user_input)
-    if local_action:
-        handle_ai_answer(json.dumps(local_action), assistant_name, config)
-        return False
-
-    add_user_message(messages, normalized_user_input)
-
-    try:
-        from ai_client import get_ai_response
-
-        answer = get_ai_response(client, messages, config)
-
-        handle_ai_answer(answer, assistant_name, config)
-
-        add_assistant_message(messages, answer)
-
-    except Exception as e:
-        print("Błąd:", e)
-
-    return False
+    return result.should_exit
 
 
 def main():
     try:
         config = load_config()
     except ConfigError as e:
-        print("Błąd konfiguracji:", e)
+        print("Blad konfiguracji:", e)
         return
 
-    from ai_client import create_client, get_ai_response
+    from ai_client import create_client
 
     assistant_name = config["assistant_name"]
     client = create_client(config)
     messages = create_messages(config)
+    pending_note = {}
 
     print(f"{assistant_name} uruchomiony.")
-    print("Napisz 'exit', żeby zakończyć.\n")
+    print("Napisz 'exit', zeby zakonczyc.\n")
 
     while True:
         user_input = input("Ty: ")
@@ -196,7 +78,7 @@ def main():
             print("Ty:", spoken_text)
             user_input = spoken_text
 
-        if process_user_text(user_input, assistant_name, client, config, messages):
+        if process_user_text(user_input, assistant_name, client, config, messages, pending_note):
             break
 
 

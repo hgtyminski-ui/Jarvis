@@ -8,3 +8,5 @@ pyinstaller
 customtkinter
 psutil
 requests
+fastapi
+uvicorn
