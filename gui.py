@@ -99,6 +99,10 @@ class JarvisGUI(ctk.CTk):
         self.app_action_buttons = {}
         self.lm_server_label = None
         self.lm_model_label = None
+        self.phone_status_label = None
+        self.phone_seen_label = None
+        self.phone_command_label = None
+        self.phone_status_refreshing = False
         self.settings_window = None
         self.notes_window = None
         self.notes_list_frame = None
@@ -1284,6 +1288,7 @@ class JarvisGUI(ctk.CTk):
             message = f"Wysłano komendę do telefonu: {target}"
             self.append_from_thread(f"{self.assistant_name}: {message}")
             self.set_status_from_thread(message)
+            self.after(0, self.refresh_phone_status)
         except Exception as e:
             had_error = True
             self.set_error_status_from_thread(e)
@@ -1365,13 +1370,14 @@ class JarvisGUI(ctk.CTk):
         self.add_status_row(parent, 4, "Mikrofon", "Nieznany")
         self.add_status_row(parent, 5, "CPU", "brak danych")
         self.add_status_row(parent, 6, "RAM", "brak danych")
+        self.build_phone_status(parent, 7)
 
         ctk.CTkLabel(
             parent,
             text="HUD LINK ACTIVE",
             text_color=MUTED,
             font=ctk.CTkFont(size=11),
-        ).grid(row=7, column=0, padx=14, pady=(18, 0), sticky="s")
+        ).grid(row=8, column=0, padx=14, pady=(18, 0), sticky="s")
 
     def build_lm_studio_status(self, parent, row):
         frame = ctk.CTkFrame(
@@ -1424,6 +1430,67 @@ class JarvisGUI(ctk.CTk):
             font=ctk.CTkFont(size=12, weight="bold"),
         )
         refresh_button.grid(row=3, column=0, padx=10, pady=(0, 10), sticky="ew")
+
+    def build_phone_status(self, parent, row):
+        frame = ctk.CTkFrame(
+            parent,
+            fg_color="#0f1b2d",
+            border_width=1,
+            border_color=LINE,
+            corner_radius=8,
+        )
+        frame.grid(row=row, column=0, padx=14, pady=(0, 10), sticky="ew")
+        frame.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            frame,
+            text="TELEFON",
+            text_color=CYAN,
+            anchor="w",
+            font=ctk.CTkFont(size=12, weight="bold"),
+        ).grid(row=0, column=0, padx=10, pady=(10, 4), sticky="ew")
+
+        self.phone_status_label = ctk.CTkLabel(
+            frame,
+            text="Telefon: Offline",
+            text_color=TEXT,
+            anchor="w",
+            font=ctk.CTkFont(size=12),
+        )
+        self.phone_status_label.grid(row=1, column=0, padx=10, pady=(0, 3), sticky="ew")
+
+        self.phone_seen_label = ctk.CTkLabel(
+            frame,
+            text="Ostatnio widziany: brak",
+            text_color=TEXT,
+            anchor="w",
+            font=ctk.CTkFont(size=12),
+        )
+        self.phone_seen_label.grid(row=2, column=0, padx=10, pady=(0, 3), sticky="ew")
+
+        self.phone_command_label = ctk.CTkLabel(
+            frame,
+            text="Ostatnia komenda: brak",
+            text_color=TEXT,
+            anchor="w",
+            font=ctk.CTkFont(size=12),
+        )
+        self.phone_command_label.grid(row=3, column=0, padx=10, pady=(0, 8), sticky="ew")
+
+        refresh_button = ctk.CTkButton(
+            frame,
+            text="Odswiez telefon",
+            command=self.refresh_phone_status,
+            height=28,
+            fg_color="#0b1220",
+            hover_color="#2f7dff",
+            text_color=TEXT,
+            border_width=1,
+            border_color=CYAN,
+            corner_radius=6,
+            font=ctk.CTkFont(size=12, weight="bold"),
+        )
+        refresh_button.grid(row=4, column=0, padx=10, pady=(0, 10), sticky="ew")
 
     def add_status_row(self, parent, row, name, value):
         frame = ctk.CTkFrame(parent, fg_color="#0f1b2d", corner_radius=6)
@@ -1688,6 +1755,8 @@ class JarvisGUI(ctk.CTk):
             self.messages = create_messages(self.config)
             self.update_system_status("Gotowy")
             self.refresh_lm_studio_status()
+            self.refresh_phone_status()
+            self.after(5000, self.refresh_phone_status_periodic)
             self.append_history(f"{self.assistant_name} uruchomiony.")
         except ConfigError as e:
             self.set_error_status(e)
@@ -1758,6 +1827,63 @@ class JarvisGUI(ctk.CTk):
             self.lm_server_label.configure(text=server_text)
         if self.lm_model_label:
             self.lm_model_label.configure(text=model_text)
+
+    def refresh_phone_status(self):
+        if self.phone_status_label:
+            self.phone_status_label.configure(text="Telefon: Sprawdzam...")
+
+        thread = threading.Thread(target=self.refresh_phone_status_worker, daemon=True)
+        thread.start()
+
+    def refresh_phone_status_periodic(self):
+        self.refresh_phone_status()
+        self.after(5000, self.refresh_phone_status_periodic)
+
+    def refresh_phone_status_worker(self):
+        status_text = "Telefon: Offline"
+        seen_text = "Ostatnio widziany: brak"
+        command_text = "Ostatnia komenda: brak"
+
+        try:
+            if requests is None:
+                raise RuntimeError("requests is not installed")
+            if not self.config:
+                raise RuntimeError("brak konfiguracji")
+
+            token = self.config.get("api_token")
+            if not token:
+                raise RuntimeError("brak api_token")
+
+            response = requests.get(
+                "http://127.0.0.1:8000/phone/status",
+                headers={"X-Jarvis-Token": token},
+                timeout=2,
+            )
+            if response.status_code == 401:
+                raise RuntimeError("token API odrzucony")
+            response.raise_for_status()
+
+            data = response.json()
+            status_text = "Telefon: Online" if data.get("online") else "Telefon: Offline"
+            seen_text = f"Ostatnio widziany: {data.get('last_seen') or 'brak'}"
+            command_text = f"Ostatnia komenda: {data.get('last_command') or 'brak'}"
+        except Exception as e:
+            status_text = "Telefon: Blad"
+            seen_text = "Ostatnio widziany: brak"
+            command_text = f"Ostatnia komenda: {str(e).splitlines()[0][:32]}"
+
+        self.after(
+            0,
+            lambda: self.update_phone_status_labels(status_text, seen_text, command_text),
+        )
+
+    def update_phone_status_labels(self, status_text, seen_text, command_text):
+        if self.phone_status_label:
+            self.phone_status_label.configure(text=status_text)
+        if self.phone_seen_label:
+            self.phone_seen_label.configure(text=seen_text)
+        if self.phone_command_label:
+            self.phone_command_label.configure(text=command_text)
 
     def update_clock_and_metrics(self):
         now = datetime.datetime.now()

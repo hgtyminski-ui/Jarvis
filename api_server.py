@@ -1,5 +1,6 @@
 import json
 from collections import deque
+from datetime import datetime
 from pathlib import Path
 from threading import Lock
 
@@ -25,6 +26,8 @@ runtime = None
 runtime_lock = Lock()
 phone_commands = deque()
 phone_commands_lock = Lock()
+last_phone_seen = None
+last_phone_command = None
 
 SAFE_SETTINGS = [
     "voice_enabled",
@@ -1364,10 +1367,34 @@ def queue_phone_command(request: PhoneCommandRequest, _authorized: None = Depend
 
 @app.get("/phone/pending")
 def get_pending_phone_command(_authorized: None = Depends(verify_token)):
+    global last_phone_command, last_phone_seen
+
     with phone_commands_lock:
+        last_phone_seen = datetime.now()
         if phone_commands:
-            return phone_commands.popleft()
+            command = phone_commands.popleft()
+            last_phone_command = command.get("target")
+            return command
     return {"action": None}
+
+
+@app.get("/phone/status")
+def get_phone_status(_authorized: None = Depends(verify_token)):
+    with phone_commands_lock:
+        last_seen = last_phone_seen
+        last_command = last_phone_command
+
+    online = False
+    last_seen_text = None
+    if last_seen is not None:
+        online = (datetime.now() - last_seen).total_seconds() < 5
+        last_seen_text = last_seen.strftime("%Y-%m-%d %H:%M:%S")
+
+    return {
+        "online": online,
+        "last_seen": last_seen_text,
+        "last_command": last_command,
+    }
 
 
 @app.get("/notes")
