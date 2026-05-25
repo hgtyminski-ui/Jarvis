@@ -1,0 +1,25 @@
+# private config
+config.json
+
+# python cache
+__pycache__/
+*.pyc
+
+# build files
+build/
+dist/
+*.spec
+
+# logs/temp
+*.log
+*.tmp
+input.wav
+speech.mp3
+
+# virtual env
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
