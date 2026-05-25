@@ -24,8 +24,8 @@ from notes_manager import NOTES_PATH
 app = FastAPI(title="Jarvis API", docs_url=None, redoc_url=None, openapi_url=None)
 runtime = None
 runtime_lock = Lock()
-phone_commands = deque()
-phone_commands_lock = Lock()
+phone_command_queue = deque()
+phone_command_queue_lock = Lock()
 last_phone_seen = None
 last_phone_command = None
 
@@ -1360,8 +1360,8 @@ def queue_phone_command(request: PhoneCommandRequest, _authorized: None = Depend
         "action": request.action,
         "target": request.target.strip().lower(),
     }
-    with phone_commands_lock:
-        phone_commands.append(command)
+    with phone_command_queue_lock:
+        phone_command_queue.append(command)
     return {"status": "queued"}
 
 
@@ -1369,10 +1369,10 @@ def queue_phone_command(request: PhoneCommandRequest, _authorized: None = Depend
 def get_pending_phone_command(_authorized: None = Depends(verify_token)):
     global last_phone_command, last_phone_seen
 
-    with phone_commands_lock:
+    with phone_command_queue_lock:
         last_phone_seen = datetime.now()
-        if phone_commands:
-            command = phone_commands.popleft()
+        if phone_command_queue:
+            command = phone_command_queue.popleft()
             last_phone_command = command.get("target")
             return command
     return {"action": None}
@@ -1380,9 +1380,10 @@ def get_pending_phone_command(_authorized: None = Depends(verify_token)):
 
 @app.get("/phone/status")
 def get_phone_status(_authorized: None = Depends(verify_token)):
-    with phone_commands_lock:
+    with phone_command_queue_lock:
         last_seen = last_phone_seen
         last_command = last_phone_command
+        queue_size = len(phone_command_queue)
 
     online = False
     last_seen_text = None
@@ -1394,6 +1395,7 @@ def get_phone_status(_authorized: None = Depends(verify_token)):
         "online": online,
         "last_seen": last_seen_text,
         "last_command": last_command,
+        "queue_size": queue_size,
     }
 
 
