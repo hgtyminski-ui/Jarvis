@@ -38,25 +38,35 @@ except ImportError:
     psutil = None
 
 
-BG = "#05070b"
-PANEL = "#0b111a"
-PANEL_2 = "#08131d"
-CYAN = "#00d9ff"
-BLUE = "#1b70ff"
-GREEN = "#00a864"
-GREEN_HOVER = "#00c777"
-RED = "#c3223a"
-RED_HOVER = "#e0334d"
-TEXT = "#d9f7ff"
-MUTED = "#6f95a3"
-LINE = "#0c5a78"
+BG = "#05070d"
+PANEL = "#0b1220"
+PANEL_2 = "#0f1b2d"
+CYAN = "#00eaff"
+BLUE = "#2f7dff"
+PURPLE = "#8a5cff"
+GREEN = "#20e080"
+GREEN_HOVER = "#27f090"
+RED = "#ff3b5c"
+RED_HOVER = "#ff5470"
+TEXT = "#d7f7ff"
+MUTED = "#7aa5b3"
+LINE = "#1b4f6b"
 CATEGORY_STYLES = [
-    ("#06121d", "#0d6f8c"),
-    ("#071822", "#169c9a"),
-    ("#0a1514", "#00a864"),
-    ("#11131f", "#536dff"),
-    ("#160f18", "#a15cff"),
-    ("#17100f", "#d97335"),
+    (PANEL_2, CYAN),
+    (PANEL_2, BLUE),
+    (PANEL_2, PURPLE),
+    (PANEL_2, GREEN),
+    (PANEL, BLUE),
+    (PANEL, PURPLE),
+]
+PHONE_APP_TARGETS = [
+    "spotify",
+    "youtube",
+    "netflix",
+    "discord",
+    "steam",
+    "whatsapp",
+    "teams",
 ]
 
 
@@ -95,6 +105,7 @@ class JarvisGUI(ctk.CTk):
         self.note_window = None
         self.note_preview_window = None
         self.pending_note_content = None
+        self.control_mode = "pc"
 
         self.bind("<F11>", self.toggle_fullscreen)
         self.bind("<Escape>", self.exit_fullscreen)
@@ -114,6 +125,7 @@ class JarvisGUI(ctk.CTk):
         header.grid(row=0, column=0, padx=22, pady=(16, 8), sticky="ew")
         header.grid_columnconfigure(0, weight=1)
         header.grid_columnconfigure(1, weight=0)
+        header.grid_columnconfigure(2, weight=0)
 
         self.title_label = ctk.CTkLabel(
             header,
@@ -129,7 +141,23 @@ class JarvisGUI(ctk.CTk):
             text_color=MUTED,
             font=ctk.CTkFont(size=14, weight="bold"),
         )
-        self.status_label.grid(row=1, column=0, sticky="ew")
+        self.status_label.grid(row=1, column=0, columnspan=3, sticky="ew")
+
+        self.control_mode_selector = ctk.CTkSegmentedButton(
+            header,
+            values=["Steruj PC", "Steruj telefonem"],
+            command=self.set_control_mode,
+            height=30,
+            selected_color=CYAN,
+            selected_hover_color=BLUE,
+            unselected_color=PANEL_2,
+            unselected_hover_color=PANEL,
+            text_color=TEXT,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            corner_radius=6,
+        )
+        self.control_mode_selector.set("Steruj PC")
+        self.control_mode_selector.grid(row=0, column=1, padx=(12, 0), pady=(4, 0), sticky="e")
 
         self.close_button = ctk.CTkButton(
             header,
@@ -137,20 +165,20 @@ class JarvisGUI(ctk.CTk):
             command=self.close_window,
             width=34,
             height=28,
-            fg_color="#17080d",
-            hover_color="#42101a",
-            text_color="#ff5c7a",
+            fg_color="#0b1220",
+            hover_color="#2f7dff",
+            text_color="#ff3b5c",
             border_width=1,
             border_color=CYAN,
             corner_radius=6,
             font=ctk.CTkFont(size=13, weight="bold"),
         )
-        self.close_button.grid(row=0, column=1, padx=(12, 0), pady=(4, 0), sticky="ne")
+        self.close_button.grid(row=0, column=2, padx=(10, 0), pady=(4, 0), sticky="ne")
 
         ctk.CTkFrame(header, fg_color=CYAN, height=1, corner_radius=0).grid(
             row=2,
             column=0,
-            columnspan=2,
+            columnspan=3,
             padx=130,
             pady=(8, 0),
             sticky="ew",
@@ -210,9 +238,9 @@ class JarvisGUI(ctk.CTk):
             wrap="word",
             font=ctk.CTkFont(size=14),
             text_color=TEXT,
-            fg_color="#050b12",
+            fg_color="#05070d",
             border_width=1,
-            border_color="#14384a",
+            border_color="#1b4f6b",
             corner_radius=8,
         )
         self.entry.grid(row=0, column=0, rowspan=2, padx=(10, 8), pady=10, sticky="ew")
@@ -223,7 +251,8 @@ class JarvisGUI(ctk.CTk):
             self.input_frame,
             "Wyślij",
             self.send_text,
-            fg_color=BLUE,
+            fg_color=PANEL_2,
+            hover_color=BLUE,
         )
         self.send_button.grid(row=0, column=1, padx=(0, 8), pady=(10, 6), sticky="ew")
 
@@ -236,8 +265,8 @@ class JarvisGUI(ctk.CTk):
             self.input_frame,
             "Wyczyść",
             self.clear_history,
-            fg_color="#15202b",
-            hover_color="#203244",
+            fg_color="#0f1b2d",
+            hover_color="#2f7dff",
         )
         self.clear_button.grid(row=1, column=1, columnspan=2, padx=(0, 10), pady=(0, 10), sticky="ew")
 
@@ -246,11 +275,11 @@ class JarvisGUI(ctk.CTk):
             parent,
             fg_color=PANEL,
             border_width=1,
-            border_color="#123348",
+            border_color="#1b4f6b",
             corner_radius=8,
         )
 
-    def create_action_button(self, parent, text, command, fg_color="#0d2f45", hover_color="#124f70"):
+    def create_action_button(self, parent, text, command, fg_color=PANEL, hover_color=BLUE):
         return ctk.CTkButton(
             parent,
             text=text,
@@ -274,8 +303,8 @@ class JarvisGUI(ctk.CTk):
             parent,
             "Aplikacje",
             self.toggle_apps_panel,
-            fg_color="#082a3a",
-            hover_color="#0d4964",
+            fg_color="#0b1220",
+            hover_color="#2f7dff",
         )
         self.apps_toggle_button.grid(row=0, column=0, padx=14, pady=(16, 5), sticky="ew")
 
@@ -283,8 +312,8 @@ class JarvisGUI(ctk.CTk):
             parent,
             "Ustawienia",
             self.open_settings_window,
-            fg_color="#0d2f45",
-            hover_color="#124f70",
+            fg_color="#0b1220",
+            hover_color=BLUE,
         )
         self.settings_button.grid(row=1, column=0, padx=14, pady=5, sticky="ew")
 
@@ -292,8 +321,8 @@ class JarvisGUI(ctk.CTk):
             parent,
             "Notatki",
             self.toggle_notes_panel,
-            fg_color="#0d2f45",
-            hover_color="#124f70",
+            fg_color="#0b1220",
+            hover_color=BLUE,
         )
         self.notes_toggle_button.grid(row=2, column=0, padx=14, pady=5, sticky="ew")
 
@@ -357,9 +386,9 @@ class JarvisGUI(ctk.CTk):
             text="Nowa notatka",
             command=self.open_new_note_window,
             height=32,
-            fg_color=GREEN,
-            hover_color=GREEN_HOVER,
-            text_color="#041014",
+            fg_color=PANEL,
+            hover_color=BLUE,
+            text_color=GREEN,
             border_width=1,
             border_color=CYAN,
             corner_radius=6,
@@ -372,8 +401,8 @@ class JarvisGUI(ctk.CTk):
             text="Odśwież notatki",
             command=self.refresh_notes_list,
             height=32,
-            fg_color="#082a3a",
-            hover_color="#0d4964",
+            fg_color="#0b1220",
+            hover_color="#2f7dff",
             text_color=TEXT,
             border_width=1,
             border_color=CYAN,
@@ -387,8 +416,8 @@ class JarvisGUI(ctk.CTk):
             text="Zamknij",
             command=close_window,
             height=32,
-            fg_color="#15202b",
-            hover_color="#203244",
+            fg_color="#0f1b2d",
+            hover_color="#2f7dff",
             text_color=TEXT,
             border_width=1,
             border_color=CYAN,
@@ -399,11 +428,11 @@ class JarvisGUI(ctk.CTk):
 
         self.notes_list_frame = ctk.CTkScrollableFrame(
             frame,
-            fg_color="#050b12",
+            fg_color="#05070d",
             border_width=1,
             border_color=LINE,
             corner_radius=8,
-            scrollbar_button_color="#0d4964",
+            scrollbar_button_color="#2f7dff",
             scrollbar_button_hover_color=CYAN,
         )
         self.notes_list_frame.grid(row=2, column=0, padx=14, pady=(0, 14), sticky="nsew")
@@ -425,7 +454,7 @@ class JarvisGUI(ctk.CTk):
             ctk.CTkLabel(
                 self.notes_list_frame,
                 text="Błąd ładowania notatek",
-                text_color="#ff5c7a",
+                text_color="#ff3b5c",
                 font=ctk.CTkFont(size=12, weight="bold"),
             ).grid(row=0, column=0, padx=12, pady=12, sticky="ew")
             return
@@ -449,9 +478,9 @@ class JarvisGUI(ctk.CTk):
 
         note_frame = ctk.CTkFrame(
             parent,
-            fg_color="#07101a",
+            fg_color="#0f1b2d",
             border_width=1,
-            border_color="#14384a",
+            border_color="#1b4f6b",
             corner_radius=6,
         )
         note_frame.grid(row=row, column=0, padx=8, pady=4, sticky="ew")
@@ -464,8 +493,8 @@ class JarvisGUI(ctk.CTk):
             command=lambda selected_note=note: self.open_note_preview(selected_note),
             anchor="w",
             height=30,
-            fg_color="#07101a",
-            hover_color="#0b2432",
+            fg_color="#0f1b2d",
+            hover_color="#2f7dff",
             text_color=TEXT,
             border_width=0,
             corner_radius=4,
@@ -487,9 +516,9 @@ class JarvisGUI(ctk.CTk):
             command=lambda path=note_path: self.delete_note_from_gui(path),
             width=70,
             height=28,
-            fg_color=RED,
-            hover_color=RED_HOVER,
-            text_color="#fff5f7",
+            fg_color=PANEL,
+            hover_color=BLUE,
+            text_color=RED,
             border_width=1,
             border_color=CYAN,
             corner_radius=6,
@@ -554,9 +583,9 @@ class JarvisGUI(ctk.CTk):
             wrap="word",
             font=ctk.CTkFont(size=13),
             text_color=TEXT,
-            fg_color="#050b12",
+            fg_color="#05070d",
             border_width=1,
-            border_color="#14384a",
+            border_color="#1b4f6b",
             corner_radius=6,
         )
         content_box.grid(row=1, column=0, padx=14, pady=(0, 10), sticky="nsew")
@@ -580,9 +609,9 @@ class JarvisGUI(ctk.CTk):
             text="Usuń",
             command=lambda path=note_path, top=window: self.delete_note_from_gui(path, top),
             height=34,
-            fg_color=RED,
-            hover_color=RED_HOVER,
-            text_color="#fff5f7",
+            fg_color=PANEL,
+            hover_color=BLUE,
+            text_color=RED,
             border_width=1,
             border_color=CYAN,
             corner_radius=6,
@@ -595,8 +624,8 @@ class JarvisGUI(ctk.CTk):
             text="Zamknij",
             command=close_window,
             height=34,
-            fg_color="#15202b",
-            hover_color="#203244",
+            fg_color="#0f1b2d",
+            hover_color="#2f7dff",
             text_color=TEXT,
             border_width=1,
             border_color=CYAN,
@@ -668,9 +697,9 @@ class JarvisGUI(ctk.CTk):
 
         title_entry = ctk.CTkEntry(
             frame,
-            fg_color="#050b12",
+            fg_color="#05070d",
             text_color=TEXT,
-            border_color="#14384a",
+            border_color="#1b4f6b",
             border_width=1,
             corner_radius=6,
         )
@@ -690,9 +719,9 @@ class JarvisGUI(ctk.CTk):
             wrap="word",
             font=ctk.CTkFont(size=13),
             text_color=TEXT,
-            fg_color="#050b12",
+            fg_color="#05070d",
             border_width=1,
-            border_color="#14384a",
+            border_color="#1b4f6b",
             corner_radius=6,
         )
         content_box.grid(row=4, column=0, padx=14, pady=(0, 8), sticky="ew")
@@ -711,9 +740,9 @@ class JarvisGUI(ctk.CTk):
             text="Zapisz",
             command=lambda: self.save_note_from_window(title_entry, content_box, message_label),
             height=34,
-            fg_color=GREEN,
-            hover_color=GREEN_HOVER,
-            text_color="#041014",
+            fg_color=PANEL,
+            hover_color=BLUE,
+            text_color=GREEN,
             border_width=1,
             border_color=CYAN,
             corner_radius=6,
@@ -730,13 +759,13 @@ class JarvisGUI(ctk.CTk):
         try:
             result = create_note(content, title)
         except Exception as e:
-            message_label.configure(text=f"Błąd zapisu: {e}", text_color="#ff5c7a")
+            message_label.configure(text=f"Błąd zapisu: {e}", text_color="#ff3b5c")
             self.set_error_status(e)
             self.after(1500, lambda: self.set_status("Gotowy"))
             return
 
         if result != "saved":
-            message_label.configure(text="Brakuje treści notatki.", text_color="#ff5c7a")
+            message_label.configure(text="Brakuje treści notatki.", text_color="#ff3b5c")
             self.set_error_status("brakuje treści notatki")
             self.after(1500, lambda: self.set_status("Gotowy"))
             return
@@ -798,7 +827,7 @@ class JarvisGUI(ctk.CTk):
             variable=settings_vars["voice_enabled"],
             text_color=TEXT,
             fg_color=CYAN,
-            hover_color="#0d4964",
+            hover_color="#2f7dff",
             border_color=CYAN,
         )
         voice_checkbox.grid(row=1, column=0, columnspan=2, padx=14, pady=8, sticky="w")
@@ -818,7 +847,7 @@ class JarvisGUI(ctk.CTk):
         message_label = ctk.CTkLabel(
             frame,
             text=f"Błąd config.json: {error}" if error else "",
-            text_color="#ff5c7a" if error else GREEN_HOVER,
+            text_color="#ff3b5c" if error else GREEN_HOVER,
             wraplength=350,
             font=ctk.CTkFont(size=12, weight="bold"),
         )
@@ -829,9 +858,9 @@ class JarvisGUI(ctk.CTk):
             text="Zapisz",
             command=lambda: self.save_settings(config_data, settings_vars, message_label),
             height=34,
-            fg_color=GREEN,
-            hover_color=GREEN_HOVER,
-            text_color="#041014",
+            fg_color=PANEL,
+            hover_color=BLUE,
+            text_color=GREEN,
             border_width=1,
             border_color=CYAN,
             corner_radius=6,
@@ -846,8 +875,8 @@ class JarvisGUI(ctk.CTk):
             text="Zamknij",
             command=window.destroy,
             height=34,
-            fg_color="#15202b",
-            hover_color="#203244",
+            fg_color="#0f1b2d",
+            hover_color="#2f7dff",
             text_color=TEXT,
             border_width=1,
             border_color=CYAN,
@@ -868,9 +897,9 @@ class JarvisGUI(ctk.CTk):
         entry = ctk.CTkEntry(
             parent,
             textvariable=variable,
-            fg_color="#050b12",
+            fg_color="#05070d",
             text_color=TEXT,
-            border_color="#14384a",
+            border_color="#1b4f6b",
             border_width=1,
             corner_radius=6,
         )
@@ -892,7 +921,7 @@ class JarvisGUI(ctk.CTk):
 
     def save_settings(self, config_data, settings_vars, message_label):
         if config_data is None:
-            message_label.configure(text="Nie można zapisać: config.json ma błąd.", text_color="#ff5c7a")
+            message_label.configure(text="Nie można zapisać: config.json ma błąd.", text_color="#ff3b5c")
             self.set_error_status("config.json ma błąd")
             return
 
@@ -908,7 +937,7 @@ class JarvisGUI(ctk.CTk):
                 float(settings_vars["animation_speed"].get().strip())
             )
         except ValueError as e:
-            message_label.configure(text=f"Błąd wartości: {e}", text_color="#ff5c7a")
+            message_label.configure(text=f"Błąd wartości: {e}", text_color="#ff3b5c")
             self.set_error_status(e)
             return
 
@@ -924,7 +953,7 @@ class JarvisGUI(ctk.CTk):
             self.append_history("Zapisano ustawienia")
             self.set_status("Gotowy")
         except Exception as e:
-            message_label.configure(text=f"Błąd zapisu: {e}", text_color="#ff5c7a")
+            message_label.configure(text=f"Błąd zapisu: {e}", text_color="#ff3b5c")
             self.set_error_status(e)
 
     def build_apps_panel(self, parent):
@@ -939,7 +968,7 @@ class JarvisGUI(ctk.CTk):
         self.apps_panel.grid_columnconfigure(0, weight=1)
         self.apps_panel.grid_rowconfigure(1, weight=1)
 
-        header = ctk.CTkFrame(self.apps_panel, fg_color="#07101a", corner_radius=8)
+        header = ctk.CTkFrame(self.apps_panel, fg_color="#0f1b2d", corner_radius=8)
         header.grid(row=0, column=0, padx=14, pady=(14, 8), sticky="ew")
         header.grid_columnconfigure(0, weight=1)
 
@@ -957,9 +986,9 @@ class JarvisGUI(ctk.CTk):
             command=self.toggle_apps_panel,
             width=34,
             height=28,
-            fg_color="#17080d",
-            hover_color="#42101a",
-            text_color="#ff5c7a",
+            fg_color="#0b1220",
+            hover_color="#2f7dff",
+            text_color="#ff3b5c",
             border_width=1,
             border_color=CYAN,
             corner_radius=6,
@@ -971,8 +1000,8 @@ class JarvisGUI(ctk.CTk):
             command=self.refresh_apps_list,
             width=150,
             height=28,
-            fg_color="#082a3a",
-            hover_color="#0d4964",
+            fg_color="#0b1220",
+            hover_color="#2f7dff",
             text_color=TEXT,
             border_width=1,
             border_color=CYAN,
@@ -984,11 +1013,11 @@ class JarvisGUI(ctk.CTk):
 
         self.apps_container = ctk.CTkScrollableFrame(
             self.apps_panel,
-            fg_color="#050b12",
+            fg_color="#05070d",
             border_width=1,
             border_color=LINE,
             corner_radius=8,
-            scrollbar_button_color="#0d4964",
+            scrollbar_button_color="#2f7dff",
             scrollbar_button_hover_color=CYAN,
         )
         self.apps_container.grid(row=1, column=0, padx=14, pady=(0, 14), sticky="nsew")
@@ -1039,6 +1068,10 @@ class JarvisGUI(ctk.CTk):
 
             self.app_action_buttons = {}
             apps = load_apps()
+            if self.is_phone_control_mode():
+                apps = dict(apps)
+                for phone_target in PHONE_APP_TARGETS:
+                    apps.setdefault(phone_target, "")
             processes = load_processes()
             categories = self.get_app_categories(apps)
         except Exception as e:
@@ -1102,11 +1135,15 @@ class JarvisGUI(ctk.CTk):
         except Exception:
             running = False
         action_text = "Zamknij" if running else "Otwórz"
-        fg_color = RED if running else GREEN
-        hover_color = RED_HOVER if running else GREEN_HOVER
+        if self.is_phone_control_mode():
+            running = False
+            action_text = "Telefon"
+        fg_color = PANEL
+        hover_color = BLUE
+        text_color = RED if running else GREEN
         action = "close" if running else "open"
 
-        app_row = ctk.CTkFrame(parent, fg_color="#050b12", corner_radius=6)
+        app_row = ctk.CTkFrame(parent, fg_color="#05070d", corner_radius=6)
         app_row.grid(row=row, column=0, padx=8, pady=4, sticky="ew")
         app_row.grid_columnconfigure(0, weight=1)
 
@@ -1126,7 +1163,7 @@ class JarvisGUI(ctk.CTk):
             height=28,
             fg_color=fg_color,
             hover_color=hover_color,
-            text_color="#041014",
+            text_color=text_color,
             border_width=1,
             border_color=CYAN,
             corner_radius=6,
@@ -1139,6 +1176,16 @@ class JarvisGUI(ctk.CTk):
         target = normalize_text(target)
         print(f"App button clicked: action={action} target={target}")
 
+        if self.is_phone_control_mode():
+            self.set_status("WysyĹ‚am komendÄ™ do telefonu")
+            thread = threading.Thread(
+                target=self.run_phone_app_action_worker,
+                args=(target,),
+                daemon=True,
+            )
+            thread.start()
+            return
+
         button = self.app_action_buttons.get(target)
         if button:
             button.configure(state="disabled")
@@ -1150,6 +1197,27 @@ class JarvisGUI(ctk.CTk):
             daemon=True,
         )
         thread.start()
+
+    def run_phone_app_action_worker(self, target):
+        had_error = False
+        button = self.app_action_buttons.get(target)
+        if button:
+            self.after(0, lambda: button.configure(state="disabled"))
+
+        try:
+            self.send_phone_command(target)
+            message = f"WysĹ‚ano komendÄ™ do telefonu: {target}"
+            self.append_from_thread(f"{self.assistant_name}: {message}")
+            self.set_status_from_thread(message)
+        except Exception as e:
+            had_error = True
+            self.set_error_status_from_thread(e)
+            self.append_from_thread(f"BĹ‚Ä…d telefonu: {e}")
+        finally:
+            if button:
+                self.after(0, lambda: button.configure(state="normal"))
+            if had_error:
+                self.after(2000, lambda: self.set_status(self.phone_mode_message()))
 
     def run_app_action_worker(self, target, action):
         had_error = False
@@ -1179,6 +1247,53 @@ class JarvisGUI(ctk.CTk):
             self.after(delay, lambda: self.set_status("Gotowy"))
             self.after(1000, self.refresh_apps_list)
 
+    def run_app_action(self, target, action):
+        target = normalize_text(target)
+        print(f"App button clicked: action={action} target={target}")
+
+        if self.is_phone_control_mode():
+            self.set_status("Wysyłam komendę do telefonu")
+            thread = threading.Thread(
+                target=self.run_phone_app_action_worker,
+                args=(target,),
+                daemon=True,
+            )
+            thread.start()
+            return
+
+        button = self.app_action_buttons.get(target)
+        if button:
+            button.configure(state="disabled")
+
+        self.set_status("Wykonuje")
+        thread = threading.Thread(
+            target=self.run_app_action_worker,
+            args=(target, action),
+            daemon=True,
+        )
+        thread.start()
+
+    def run_phone_app_action_worker(self, target):
+        had_error = False
+        button = self.app_action_buttons.get(target)
+        if button:
+            self.after(0, lambda: button.configure(state="disabled"))
+
+        try:
+            self.send_phone_command(target)
+            message = f"Wysłano komendę do telefonu: {target}"
+            self.append_from_thread(f"{self.assistant_name}: {message}")
+            self.set_status_from_thread(message)
+        except Exception as e:
+            had_error = True
+            self.set_error_status_from_thread(e)
+            self.append_from_thread(f"Błąd telefonu: {e}")
+        finally:
+            if button:
+                self.after(0, lambda: button.configure(state="normal"))
+            if had_error:
+                self.after(2000, lambda: self.set_status(self.phone_mode_message()))
+
     def build_center(self, parent):
         core_frame = ctk.CTkFrame(parent, fg_color=PANEL_2, corner_radius=8)
         core_frame.grid(row=0, column=0, padx=14, pady=14, sticky="ew")
@@ -1201,9 +1316,9 @@ class JarvisGUI(ctk.CTk):
             wrap="word",
             font=ctk.CTkFont(family="Consolas", size=13),
             text_color=TEXT,
-            fg_color="#03070c",
+            fg_color="#05070d",
             border_width=1,
-            border_color="#14384a",
+            border_color="#1b4f6b",
             corner_radius=8,
         )
         self.history.grid(row=1, column=0, padx=14, pady=(0, 14), sticky="nsew")
@@ -1221,7 +1336,7 @@ class JarvisGUI(ctk.CTk):
 
         clock_frame = ctk.CTkFrame(
             parent,
-            fg_color="#07101a",
+            fg_color="#0f1b2d",
             border_width=1,
             border_color=LINE,
             corner_radius=8,
@@ -1261,7 +1376,7 @@ class JarvisGUI(ctk.CTk):
     def build_lm_studio_status(self, parent, row):
         frame = ctk.CTkFrame(
             parent,
-            fg_color="#07101a",
+            fg_color="#0f1b2d",
             border_width=1,
             border_color=LINE,
             corner_radius=8,
@@ -1300,8 +1415,8 @@ class JarvisGUI(ctk.CTk):
             text="Odśwież status",
             command=self.refresh_lm_studio_status,
             height=28,
-            fg_color="#082a3a",
-            hover_color="#0d4964",
+            fg_color="#0b1220",
+            hover_color="#2f7dff",
             text_color=TEXT,
             border_width=1,
             border_color=CYAN,
@@ -1311,7 +1426,7 @@ class JarvisGUI(ctk.CTk):
         refresh_button.grid(row=3, column=0, padx=10, pady=(0, 10), sticky="ew")
 
     def add_status_row(self, parent, row, name, value):
-        frame = ctk.CTkFrame(parent, fg_color="#07101a", corner_radius=6)
+        frame = ctk.CTkFrame(parent, fg_color="#0f1b2d", corner_radius=6)
         frame.grid(row=row, column=0, padx=14, pady=6, sticky="ew")
         frame.grid_columnconfigure(0, weight=1)
 
@@ -1376,12 +1491,12 @@ class JarvisGUI(ctk.CTk):
         canvas.create_line(width * 0.72, height - 28, width - 22, height - 28, fill=line_color, width=max(1, int(1 + progress)))
 
         for scale, color, line_width in [
-            (1.18, "#06445c", 1),
+            (1.18, "#1b4f6b", 1),
             (1.0, CYAN, 2),
-            (0.82, "#18a8ff", 1),
+            (0.82, "#2f7dff", 1),
             (0.62, BLUE, 2),
-            (0.42, "#79efff", 1),
-            (0.23, "#d6fbff", 1),
+            (0.42, "#00eaff", 1),
+            (0.23, "#d7f7ff", 1),
         ]:
             r = radius * scale
             canvas.create_oval(
@@ -1420,7 +1535,7 @@ class JarvisGUI(ctk.CTk):
 
         canvas.create_text(cx, cy - 10, text="CORE", fill=self.fade_color(TEXT, progress), font=("Segoe UI", 24, "bold"))
         canvas.create_text(cx, cy + 22, text="ONLINE", fill=self.fade_color(CYAN, progress), font=("Segoe UI", 14, "bold"))
-        canvas.create_line(26, height - 24, width - 26, height - 24, fill=self.fade_color("#0e4c67", progress), width=1)
+        canvas.create_line(26, height - 24, width - 26, height - 24, fill=self.fade_color("#1b4f6b", progress), width=1)
         canvas.create_text(width - 58, height - 40, text="PULSE", fill=self.fade_color(MUTED, progress), font=("Consolas", 10))
 
     def draw_wave_frame(self, progress, motion_phase):
@@ -1433,9 +1548,9 @@ class JarvisGUI(ctk.CTk):
         height = max(canvas.winfo_height(), 285)
         cx = width / 2
         cy = height / 2
-        palette = [CYAN, "#18a8ff", "#7c5cff", "#d84dff"]
+        palette = [CYAN, "#2f7dff", "#8a5cff", "#8a5cff"]
 
-        frame_color = self.fade_color("#18445b", progress)
+        frame_color = self.fade_color("#1b4f6b", progress)
         canvas.create_line(22, 28, width * 0.28, 28, fill=frame_color, width=1)
         canvas.create_line(width * 0.72, 28, width - 22, 28, fill=frame_color, width=1)
         canvas.create_line(22, height - 28, width * 0.28, height - 28, fill=frame_color, width=1)
@@ -1474,10 +1589,10 @@ class JarvisGUI(ctk.CTk):
             cx,
             height - 48,
             text="AUDIO INPUT ACTIVE",
-            fill=self.fade_color("#d84dff", progress),
+            fill=self.fade_color("#8a5cff", progress),
             font=("Consolas", 11, "bold"),
         )
-        canvas.create_line(26, height - 24, width - 26, height - 24, fill=self.fade_color("#223b78", progress), width=1)
+        canvas.create_line(26, height - 24, width - 26, height - 24, fill=self.fade_color("#2f7dff", progress), width=1)
 
     def start_core_to_wave_transition(self):
         self.visual_mode = "transition_to_wave"
@@ -1690,6 +1805,60 @@ class JarvisGUI(ctk.CTk):
     def close_window(self):
         self.destroy()
 
+    def is_phone_control_mode(self):
+        return self.control_mode == "phone"
+
+    def set_control_mode(self, value):
+        self.control_mode = "phone" if value == "Steruj telefonem" else "pc"
+        if self.is_phone_control_mode():
+            message = self.phone_mode_message()
+            self.set_status(message)
+            if hasattr(self, "history"):
+                self.append_history(f"{self.assistant_name}: {message}")
+            if self.apps_panel_visible:
+                self.refresh_apps_list()
+            return
+
+        self.set_status("Gotowy")
+        if self.apps_panel_visible:
+            self.refresh_apps_list()
+
+    def handle_phone_mode_request(self):
+        message = self.phone_mode_message()
+        output = f"{self.assistant_name}: {message}"
+        self.append_history(output)
+        self.set_status(message)
+        self.speak_in_background(message)
+
+    def phone_mode_message(self):
+        return "Tryb telefonu aktywny."
+
+    def send_phone_command(self, target):
+        if requests is None:
+            raise RuntimeError("requests is not installed")
+        if not self.config:
+            raise RuntimeError("Brak konfiguracji Jarvisa")
+
+        token = self.config.get("api_token")
+        if not token:
+            raise RuntimeError("Brak api_token w config.json")
+
+        response = requests.post(
+            "http://127.0.0.1:8000/phone/command",
+            json={
+                "action": "open_mobile_app",
+                "target": target,
+            },
+            headers={"X-Jarvis-Token": token},
+            timeout=3,
+        )
+
+        if response.status_code == 401:
+            raise RuntimeError("Nieautoryzowany token API")
+
+        response.raise_for_status()
+        return response.json()
+
     def set_status(self, status):
         self.status_label.configure(text=status)
 
@@ -1752,7 +1921,10 @@ class JarvisGUI(ctk.CTk):
 
     def finish_work(self):
         self.set_controls_enabled(True)
-        self.set_status("Gotowy")
+        if self.is_phone_control_mode():
+            self.set_status(self.phone_mode_message())
+        else:
+            self.set_status("Gotowy")
         self.entry.focus_set()
 
     def capture_output(self, callback):
@@ -1779,6 +1951,10 @@ class JarvisGUI(ctk.CTk):
             return
 
         self.append_history(f"Ty: {user_text}")
+        if self.is_phone_control_mode():
+            self.handle_phone_mode_request()
+            return
+
         self.set_controls_enabled(False)
 
         status = "Wykonuję" if self.is_local_action(user_text) else "Myślę..."
@@ -1867,6 +2043,12 @@ class JarvisGUI(ctk.CTk):
                 return
 
             self.append_from_thread(f"Ty: {spoken_text}")
+            if self.is_phone_control_mode():
+                message = self.phone_mode_message()
+                self.append_from_thread(f"{self.assistant_name}: {message}")
+                self.set_status_from_thread(message)
+                self.speak_in_background(message)
+                return
             status = "Wykonuję" if self.is_local_action(spoken_text) else "Myślę..."
             self.set_status_from_thread(status)
 

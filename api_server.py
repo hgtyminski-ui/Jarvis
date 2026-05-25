@@ -1,4 +1,5 @@
 import json
+from collections import deque
 from pathlib import Path
 from threading import Lock
 
@@ -22,6 +23,8 @@ from notes_manager import NOTES_PATH
 app = FastAPI(title="Jarvis API", docs_url=None, redoc_url=None, openapi_url=None)
 runtime = None
 runtime_lock = Lock()
+phone_commands = deque()
+phone_commands_lock = Lock()
 
 SAFE_SETTINGS = [
     "voice_enabled",
@@ -44,6 +47,11 @@ class CommandRequest(BaseModel):
 
 class AppToggleRequest(BaseModel):
     app: str
+
+
+class PhoneCommandRequest(BaseModel):
+    action: str
+    target: str
 
 
 class NoteCreateRequest(BaseModel):
@@ -71,18 +79,18 @@ INDEX_HTML = r"""
   <style>
     :root {
       color-scheme: dark;
-      --bg: #020408;
-      --panel: rgba(6, 16, 28, 0.9);
-      --panel-2: rgba(7, 24, 40, 0.94);
-      --cyan: #00d9ff;
-      --blue: #1b70ff;
-      --violet: #8a5cff;
-      --green: #00ffb3;
-      --red: #ff4f7b;
-      --text: #dff9ff;
+      --bg: #05070d;
+      --panel: #0b1220;
+      --panel-2: #0f1b2d;
+      --cyan: #00eaff;
+      --blue: #2f7dff;
+      --purple: #8a5cff;
+      --success: #20e080;
+      --danger: #ff3b5c;
+      --text: #d7f7ff;
       --muted: #78a7b7;
-      --line: rgba(0, 217, 255, 0.34);
-      --violet-line: rgba(138, 92, 255, 0.34);
+      --line: rgba(0, 234, 255, 0.36);
+      --purple-line: rgba(138, 92, 255, 0.36);
     }
 
     * { box-sizing: border-box; }
@@ -91,9 +99,9 @@ INDEX_HTML = r"""
       margin: 0;
       min-height: 100vh;
       background:
-        radial-gradient(circle at 50% 12%, rgba(0, 217, 255, 0.13), transparent 28%),
-        linear-gradient(rgba(0, 217, 255, 0.035) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(0, 217, 255, 0.03) 1px, transparent 1px),
+        radial-gradient(circle at 50% 12%, rgba(0, 234, 255, 0.12), transparent 28%),
+        linear-gradient(rgba(0, 234, 255, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 234, 255, 0.03) 1px, transparent 1px),
         var(--bg);
       background-size: auto, 36px 36px, 36px 36px, auto;
       color: var(--text);
@@ -133,19 +141,19 @@ INDEX_HTML = r"""
       font-size: 4rem;
       line-height: 1;
       letter-spacing: 0;
-      text-shadow: 0 0 18px rgba(0, 217, 255, 0.45);
+      text-shadow: 0 0 18px rgba(0, 234, 255, 0.45);
     }
 
     .signal {
       min-width: 160px;
       border: 1px solid var(--line);
       border-radius: 8px;
-      background: rgba(4, 13, 22, 0.92);
+      background: var(--panel);
       padding: 10px 12px;
-      color: var(--green);
+      color: var(--success);
       text-align: center;
       font-weight: 900;
-      box-shadow: inset 0 0 18px rgba(0, 217, 255, 0.08), 0 0 18px rgba(0, 217, 255, 0.08);
+      box-shadow: inset 0 0 18px rgba(0, 234, 255, 0.08), 0 0 18px rgba(0, 234, 255, 0.08);
     }
 
     .tabs {
@@ -155,32 +163,52 @@ INDEX_HTML = r"""
       margin: 16px 0;
     }
 
+    .mode-switch {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin: 0 0 16px;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
     .tab-button,
+    .mode-button,
     button {
       min-height: 44px;
-      border: 1px solid rgba(0, 217, 255, 0.62);
+      border: 1px solid var(--cyan);
       border-radius: 8px;
-      background: linear-gradient(180deg, rgba(15, 55, 82, 0.9), rgba(7, 24, 40, 0.94));
+      background: var(--panel);
       color: var(--text);
       font: inherit;
       font-weight: 900;
       cursor: pointer;
-      text-shadow: 0 0 10px rgba(0, 217, 255, 0.3);
-      box-shadow: inset 0 0 14px rgba(0, 217, 255, 0.08), 0 0 16px rgba(0, 217, 255, 0.08);
+      text-shadow: 0 0 10px rgba(0, 234, 255, 0.28);
+      box-shadow: inset 0 0 14px rgba(0, 234, 255, 0.07), 0 0 14px rgba(0, 234, 255, 0.07);
     }
 
     .tab-button:hover,
+    .mode-button:hover,
     button:hover {
       border-color: var(--cyan);
-      background: linear-gradient(180deg, rgba(27, 112, 255, 0.76), rgba(10, 42, 70, 0.96));
-      box-shadow: 0 0 18px rgba(0, 217, 255, 0.25), inset 0 0 16px rgba(0, 217, 255, 0.12);
+      background: var(--blue);
+      box-shadow: 0 0 18px rgba(0, 234, 255, 0.24), inset 0 0 16px rgba(0, 234, 255, 0.12);
     }
 
     .tab-button.active,
+    .mode-button.active,
     button.primary {
-      border-color: rgba(138, 92, 255, 0.9);
-      background: linear-gradient(180deg, rgba(27, 112, 255, 0.94), rgba(91, 63, 190, 0.9));
-      box-shadow: 0 0 22px rgba(138, 92, 255, 0.26), inset 0 0 18px rgba(0, 217, 255, 0.13);
+      border-color: var(--purple);
+      background: var(--panel-2);
+      box-shadow: 0 0 22px rgba(138, 92, 255, 0.24), inset 0 0 18px rgba(0, 234, 255, 0.12);
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.48;
+      box-shadow: none;
     }
 
     .view { display: none; }
@@ -203,9 +231,9 @@ INDEX_HTML = r"""
       position: relative;
       border: 1px solid var(--line);
       border-radius: 8px;
-      background: linear-gradient(145deg, var(--panel), rgba(8, 9, 24, 0.88));
+      background: var(--panel);
       padding: 14px;
-      box-shadow: inset 0 0 24px rgba(0, 217, 255, 0.055), 0 0 26px rgba(0, 0, 0, 0.28);
+      box-shadow: inset 0 0 24px rgba(0, 234, 255, 0.055), 0 0 26px rgba(0, 0, 0, 0.28);
       overflow: hidden;
     }
 
@@ -228,8 +256,8 @@ INDEX_HTML = r"""
     .panel::after {
       right: -1px;
       bottom: -1px;
-      border-right: 2px solid var(--violet);
-      border-bottom: 2px solid var(--violet);
+      border-right: 2px solid var(--purple);
+      border-bottom: 2px solid var(--purple);
     }
 
     .panel-title {
@@ -253,9 +281,9 @@ INDEX_HTML = r"""
       gap: 10px;
       align-items: center;
       min-height: 42px;
-      border: 1px solid rgba(0, 217, 255, 0.18);
+      border: 1px solid var(--line);
       border-radius: 8px;
-      background: rgba(2, 8, 14, 0.72);
+      background: var(--panel-2);
       padding: 8px 10px;
     }
 
@@ -284,13 +312,13 @@ INDEX_HTML = r"""
     textarea,
     select {
       width: 100%;
-      border: 1px solid rgba(0, 217, 255, 0.32);
+      border: 1px solid var(--line);
       border-radius: 8px;
-      background: rgba(2, 8, 14, 0.86);
+      background: var(--panel-2);
       color: var(--text);
       font: inherit;
       outline: none;
-      box-shadow: inset 0 0 16px rgba(0, 217, 255, 0.04);
+      box-shadow: inset 0 0 16px rgba(0, 234, 255, 0.04);
     }
 
     .hud-input,
@@ -310,7 +338,7 @@ INDEX_HTML = r"""
     textarea:focus,
     select:focus {
       border-color: var(--cyan);
-      box-shadow: 0 0 0 2px rgba(0, 217, 255, 0.14), inset 0 0 18px rgba(0, 217, 255, 0.08);
+      box-shadow: 0 0 0 2px rgba(0, 234, 255, 0.14), inset 0 0 18px rgba(0, 234, 255, 0.08);
     }
 
     .core-panel {
@@ -330,12 +358,12 @@ INDEX_HTML = r"""
       position: relative;
       width: min(360px, 78vw);
       aspect-ratio: 1;
-      border: 1px solid rgba(0, 217, 255, 0.52);
+      border: 1px solid var(--cyan);
       border-radius: 50%;
       background:
-        radial-gradient(circle, rgba(0, 217, 255, 0.28) 0 10%, transparent 11% 100%),
-        repeating-radial-gradient(circle, rgba(0, 217, 255, 0.15) 0 2px, transparent 2px 34px);
-      box-shadow: 0 0 34px rgba(0, 217, 255, 0.22), inset 0 0 36px rgba(27, 112, 255, 0.12);
+        radial-gradient(circle, rgba(0, 234, 255, 0.24) 0 10%, transparent 11% 100%),
+        repeating-radial-gradient(circle, rgba(0, 234, 255, 0.14) 0 2px, transparent 2px 34px);
+      box-shadow: 0 0 34px rgba(0, 234, 255, 0.2), inset 0 0 36px rgba(47, 125, 255, 0.12);
       overflow: hidden;
     }
 
@@ -343,7 +371,7 @@ INDEX_HTML = r"""
       content: "";
       position: absolute;
       inset: 13%;
-      border: 1px solid rgba(138, 92, 255, 0.62);
+      border: 1px solid var(--purple);
       border-radius: 50%;
       box-shadow: inset 0 0 22px rgba(138, 92, 255, 0.12);
     }
@@ -354,10 +382,10 @@ INDEX_HTML = r"""
       inset: 50% 50% 0 50%;
       width: 48%;
       height: 2px;
-      background: linear-gradient(90deg, var(--green), transparent);
+      background: linear-gradient(90deg, var(--success), transparent);
       transform-origin: left center;
       animation: sweep 4s linear infinite;
-      box-shadow: 0 0 14px rgba(0, 255, 179, 0.5);
+      box-shadow: 0 0 14px rgba(32, 224, 128, 0.5);
     }
 
     .core-label {
@@ -365,10 +393,10 @@ INDEX_HTML = r"""
       inset: 0;
       display: grid;
       place-items: center;
-      color: var(--green);
+      color: var(--success);
       font-size: 2rem;
       font-weight: 900;
-      text-shadow: 0 0 18px rgba(0, 255, 179, 0.65);
+      text-shadow: 0 0 18px rgba(32, 224, 128, 0.65);
     }
 
     .core-tick {
@@ -376,14 +404,14 @@ INDEX_HTML = r"""
       inset: 8%;
       border-radius: 50%;
       background:
-        linear-gradient(90deg, transparent 49.6%, rgba(0, 217, 255, 0.34) 50%, transparent 50.4%),
-        linear-gradient(0deg, transparent 49.6%, rgba(0, 217, 255, 0.34) 50%, transparent 50.4%);
+        linear-gradient(90deg, transparent 49.6%, rgba(0, 234, 255, 0.34) 50%, transparent 50.4%),
+        linear-gradient(0deg, transparent 49.6%, rgba(0, 234, 255, 0.34) 50%, transparent 50.4%);
     }
 
     @keyframes sweep { to { transform: rotate(360deg); } }
 
     .command-panel {
-      border-top: 1px solid rgba(0, 217, 255, 0.22);
+      border-top: 1px solid var(--line);
       padding-top: 14px;
     }
 
@@ -410,13 +438,15 @@ INDEX_HTML = r"""
     }
 
     .danger {
-      border-color: rgba(255, 79, 123, 0.78);
-      background: linear-gradient(180deg, rgba(114, 22, 48, 0.9), rgba(42, 7, 22, 0.94));
+      border-color: var(--danger);
+      background: var(--panel);
+      color: var(--danger);
     }
 
     .success {
-      border-color: rgba(0, 255, 179, 0.7);
-      background: linear-gradient(180deg, rgba(0, 112, 84, 0.84), rgba(7, 42, 35, 0.94));
+      border-color: var(--success);
+      background: var(--panel);
+      color: var(--success);
     }
 
     .log-panel {
@@ -442,13 +472,13 @@ INDEX_HTML = r"""
 
     .entry,
     .note-content {
-      border-left: 2px solid rgba(0, 217, 255, 0.58);
-      background: rgba(0, 12, 20, 0.74);
+      border-left: 2px solid var(--cyan);
+      background: var(--panel-2);
       padding: 8px 10px;
       white-space: pre-wrap;
       overflow-wrap: anywhere;
       line-height: 1.42;
-      color: #c9f6ff;
+      color: var(--text);
     }
 
     .entry .meta {
@@ -460,10 +490,10 @@ INDEX_HTML = r"""
       text-transform: uppercase;
     }
 
-    .entry.error { border-left-color: var(--red); color: #ffd6df; }
-    .entry.error .meta { color: var(--red); }
-    .entry.ok { border-left-color: var(--green); }
-    .entry.ok .meta { color: var(--green); }
+    .entry.error { border-left-color: var(--danger); color: var(--text); }
+    .entry.error .meta { color: var(--danger); }
+    .entry.ok { border-left-color: var(--success); }
+    .entry.ok .meta { color: var(--success); }
 
     .app-row {
       grid-template-columns: 1fr 108px;
@@ -531,6 +561,7 @@ INDEX_HTML = r"""
 
       .topbar,
       .tabs,
+      .mode-switch,
       .grid,
       .send-row,
       .quick-actions,
@@ -562,7 +593,8 @@ INDEX_HTML = r"""
       }
 
       button,
-      .tab-button {
+      .tab-button,
+      .mode-button {
         min-height: 48px;
       }
 
@@ -580,16 +612,21 @@ INDEX_HTML = r"""
     </header>
 
     <nav class="tabs" aria-label="Jarvis Remote tabs">
-      <button class="tab-button active" type="button" data-tab="chat">Chat</button>
-      <button class="tab-button" type="button" data-tab="apps">Aplikacje</button>
-      <button class="tab-button" type="button" data-tab="notes">Notatki</button>
-      <button class="tab-button" type="button" data-tab="settings">Ustawienia</button>
+      <button class="tab-button active" type="button" data-tab="chat">CHAT</button>
+      <button class="tab-button" type="button" data-tab="apps">APLIKACJE</button>
+      <button class="tab-button" type="button" data-tab="notes">NOTATKI</button>
+      <button class="tab-button" type="button" data-tab="settings">USTAWIENIA</button>
     </nav>
+
+    <div class="mode-switch" aria-label="Tryb sterowania">
+      <button class="mode-button active" type="button" data-mode="pc">STERUJ PC</button>
+      <button class="mode-button" type="button" data-mode="phone">STERUJ TELEFONEM</button>
+    </div>
 
     <section id="chatView" class="view active">
       <main class="grid">
         <section class="panel">
-          <h2 class="panel-title">System Status</h2>
+          <h2 class="panel-title">SYSTEM STATUS</h2>
           <div class="status-list">
             <div class="status-row"><span>Backend</span><span id="backendValue">unknown</span></div>
             <div class="status-row"><span>LM Studio</span><span id="lmValue">unknown</span></div>
@@ -601,7 +638,7 @@ INDEX_HTML = r"""
         </section>
 
         <section class="panel core-panel">
-          <h2 class="panel-title">Remote Core</h2>
+          <h2 class="panel-title">REMOTE CORE</h2>
           <div class="core-wrap">
             <div class="core" aria-label="Jarvis core online">
               <div class="core-tick"></div>
@@ -610,24 +647,24 @@ INDEX_HTML = r"""
           </div>
 
           <div class="command-panel">
-            <label for="message">Command Input</label>
+            <label for="message">COMMAND INPUT</label>
             <textarea id="message" placeholder="Wpisz wiadomosc albo komende..."></textarea>
             <div class="send-row">
               <button id="sendButton" class="primary" type="button">Wyslij</button>
               <button id="statusButton" type="button">Status</button>
             </div>
             <div class="quick-actions">
-              <button type="button" data-command="otworz spotify">Spotify</button>
-              <button type="button" data-command="otworz youtube">YouTube</button>
-              <button type="button" data-command="otworz steam">Steam</button>
-              <button type="button" data-command="otworz netflix">Netflix</button>
+              <button type="button" data-app="spotify">Spotify</button>
+              <button type="button" data-app="youtube">YouTube</button>
+              <button type="button" data-app="steam">Steam</button>
+              <button type="button" data-app="netflix">Netflix</button>
               <button id="quickStatusButton" type="button">Status</button>
             </div>
           </div>
         </section>
 
         <section class="panel log-panel">
-          <h2 class="panel-title">Console Log</h2>
+          <h2 class="panel-title">CONSOLE LOG</h2>
           <div id="history" class="history"></div>
         </section>
       </main>
@@ -636,12 +673,12 @@ INDEX_HTML = r"""
     <section id="appsView" class="view">
       <main class="two-col">
         <section class="panel">
-          <h2 class="panel-title">Aplikacje</h2>
+          <h2 class="panel-title">APLIKACJE</h2>
           <button id="refreshAppsButton" class="primary" type="button">Odswiez aplikacje</button>
           <div id="appsList" class="list" style="margin-top: 12px;"></div>
         </section>
         <section class="panel">
-          <h2 class="panel-title">Apps Telemetry</h2>
+          <h2 class="panel-title">APPS TELEMETRY</h2>
           <div id="appsInfo" class="note-content">Wybierz aplikacje albo odswiez status.</div>
         </section>
       </main>
@@ -650,7 +687,7 @@ INDEX_HTML = r"""
     <section id="notesView" class="view">
       <main class="two-col">
         <section class="panel">
-          <h2 class="panel-title">Notatki</h2>
+          <h2 class="panel-title">NOTATKI</h2>
           <div class="button-row">
             <button id="newNoteButton" class="primary" type="button">Nowa notatka</button>
             <button id="refreshNotesButton" type="button">Odswiez</button>
@@ -658,7 +695,7 @@ INDEX_HTML = r"""
           <div id="notesList" class="list" style="margin-top: 12px;"></div>
         </section>
         <section class="panel">
-          <h2 class="panel-title">Szczegoly notatki</h2>
+          <h2 class="panel-title">SZCZEGOLY NOTATKI</h2>
           <label for="noteTitle">Tytul</label>
           <input id="noteTitle" class="hud-input" type="text" placeholder="Tytul notatki">
           <label for="noteContent">Tresc</label>
@@ -675,7 +712,7 @@ INDEX_HTML = r"""
 
     <section id="settingsView" class="view">
       <section class="panel">
-        <h2 class="panel-title">Ustawienia</h2>
+        <h2 class="panel-title">USTAWIENIA</h2>
         <div class="settings-grid">
           <div>
             <label for="voiceEnabled">voice_enabled</label>
@@ -731,6 +768,25 @@ INDEX_HTML = r"""
     const noteTitle = document.getElementById("noteTitle");
     const noteContent = document.getElementById("noteContent");
     const noteDetails = document.getElementById("noteDetails");
+    let controlMode = localStorage.getItem("jarvis_control_mode") || "pc";
+    const mobileDeepLinks = {
+      spotify: "spotify:",
+      youtube: "vnd.youtube://",
+      netflix: "nflx://",
+      steam: "steam://",
+      discord: "discord://",
+      whatsapp: "whatsapp://",
+      teams: "msteams://"
+    };
+    const mobileFallbackLinks = {
+      spotify: "https://open.spotify.com",
+      youtube: "https://www.youtube.com",
+      netflix: "https://www.netflix.com",
+      steam: "https://store.steampowered.com",
+      discord: "https://discord.com/app",
+      whatsapp: "https://web.whatsapp.com",
+      teams: "https://teams.microsoft.com"
+    };
 
     tokenInput.value = localStorage.getItem("jarvis_api_token") || "";
     tokenInput.addEventListener("input", () => {
@@ -770,6 +826,19 @@ INDEX_HTML = r"""
       addHistory("ERR", text, "error");
     }
 
+    function setControlMode(mode) {
+      controlMode = mode === "phone" ? "phone" : "pc";
+      localStorage.setItem("jarvis_control_mode", controlMode);
+      document.querySelectorAll(".mode-button").forEach((button) => {
+        button.classList.toggle("active", button.dataset.mode === controlMode);
+      });
+      topSignal.textContent = controlMode === "phone" ? "MODE: PHONE" : "MODE: PC";
+      addHistory("MODE", controlMode === "phone" ? "Steruj telefonem" : "Steruj PC", "ok");
+      if (document.getElementById("appsView").classList.contains("active")) {
+        loadApps();
+      }
+    }
+
     function isCommand(text) {
       const normalized = text.trim().toLowerCase();
       return (
@@ -781,6 +850,17 @@ INDEX_HTML = r"""
         normalized.startsWith("znajdz na spotify") ||
         normalized.startsWith("znajdź na spotify")
       );
+    }
+
+    function mobileAppFromOpenCommand(text) {
+      const normalized = text.trim().toLowerCase();
+      const prefixes = ["otworz ", "otwórz "];
+      for (const prefix of prefixes) {
+        if (!normalized.startsWith(prefix)) continue;
+        const appName = normalized.slice(prefix.length).trim();
+        if (mobileDeepLinks[appName]) return appName;
+      }
+      return "";
     }
 
     function switchTab(tabName) {
@@ -804,6 +884,14 @@ INDEX_HTML = r"""
       addHistory("TX", text);
       messageInput.value = "";
 
+      if (controlMode === "phone") {
+        const mobileApp = mobileAppFromOpenCommand(text);
+        if (mobileApp) {
+          openMobileApp(mobileApp);
+          return;
+        }
+      }
+
       try {
         const response = await fetch(endpoint, {
           method: "POST",
@@ -815,6 +903,50 @@ INDEX_HTML = r"""
       } catch (error) {
         addHistory("AUTH", String(error.message || error), "error");
       }
+    }
+
+    async function sendBackendCommand(commandText) {
+      addHistory("TX", commandText);
+      try {
+        const response = await fetch("/command", {
+          method: "POST",
+          headers: authHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ command: commandText })
+        });
+        const data = await readJson(response);
+        addHistory("RX", data.response || "", response.ok ? "ok" : "error");
+      } catch (error) {
+        addHistory("AUTH", String(error.message || error), "error");
+      }
+    }
+
+    function openMobileApp(appName) {
+      const key = String(appName || "").toLowerCase();
+      const deepLink = mobileDeepLinks[key];
+      const fallbackLink = mobileFallbackLinks[key];
+
+      if (!deepLink || !fallbackLink) {
+        addHistory("PHONE", `Brak linku mobilnego dla: ${key}`, "error");
+        return;
+      }
+
+      addHistory("PHONE", `Otwieram aplikacje: ${key}`, "ok");
+      window.location.href = deepLink;
+      window.setTimeout(() => {
+        if (document.visibilityState !== "visible") {
+          return;
+        }
+        addHistory("PHONE", "Nie udało się otworzyć aplikacji, otwieram wersję web.", "error");
+        window.location.href = fallbackLink;
+      }, 900);
+    }
+
+    function runAppAction(appName) {
+      if (controlMode === "phone") {
+        openMobileApp(appName);
+        return;
+      }
+      sendBackendCommand(`otworz ${appName}`);
     }
 
     async function checkStatus() {
@@ -841,7 +973,8 @@ INDEX_HTML = r"""
         const response = await fetch("/apps", { headers: authHeaders() });
         const data = await readJson(response);
         appsList.textContent = "";
-        data.apps.forEach((app) => {
+        const apps = controlMode === "phone" ? mergeMobileApps(data.apps) : data.apps;
+        apps.forEach((app) => {
           const row = document.createElement("div");
           row.className = "list-row app-row";
           const name = document.createElement("div");
@@ -853,16 +986,62 @@ INDEX_HTML = r"""
           name.append(title, state);
           const button = document.createElement("button");
           button.type = "button";
-          button.className = app.running ? "danger" : "success";
-          button.textContent = app.running ? "Zamknij" : "Otworz";
-          button.addEventListener("click", () => toggleApp(app.name));
+          if (controlMode === "phone") {
+            const hasMobileLink = Boolean(mobileDeepLinks[app.name]);
+            button.className = hasMobileLink ? "success" : "";
+            button.textContent = hasMobileLink ? "Otworz" : "Brak linku";
+            button.disabled = !hasMobileLink;
+            button.addEventListener("click", () => openMobileApp(app.name));
+          } else {
+            button.className = app.running ? "danger" : "success";
+            button.textContent = app.running ? "Zamknij" : "Otworz";
+            button.addEventListener("click", () => toggleApp(app.name));
+          }
           row.append(name, button);
           appsList.append(row);
         });
-        appsInfo.textContent = `Aplikacje: ${data.apps.length}`;
+        appsInfo.textContent = controlMode === "phone"
+          ? `Tryb telefonu: ${apps.length} linkow mobilnych`
+          : `Aplikacje: ${apps.length}`;
       } catch (error) {
+        if (controlMode === "phone") {
+          appsList.textContent = "";
+          const apps = mergeMobileApps([]);
+          apps.forEach((app) => {
+            const row = document.createElement("div");
+            row.className = "list-row app-row";
+            const name = document.createElement("div");
+            const title = document.createElement("strong");
+            title.textContent = app.name;
+            const state = document.createElement("span");
+            state.className = "subtle";
+            state.textContent = "link mobilny";
+            name.append(title, state);
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "success";
+            button.textContent = "Otworz";
+            button.addEventListener("click", () => openMobileApp(app.name));
+            row.append(name, button);
+            appsList.append(row);
+          });
+          appsInfo.textContent = "Tryb telefonu: lista lokalnych linkow mobilnych.";
+          addHistory("AUTH", String(error.message || error), "error");
+          return;
+        }
         showError(appsList, error);
       }
+    }
+
+    function mergeMobileApps(apps) {
+      const byName = new Map();
+      apps.forEach((app) => byName.set(app.name, app));
+      Object.keys(mobileDeepLinks).forEach((name) => {
+        if (!byName.has(name)) {
+          byName.set(name, { name, running: false });
+        }
+      });
+      return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
     }
 
     async function toggleApp(appName) {
@@ -1018,6 +1197,9 @@ INDEX_HTML = r"""
     document.querySelectorAll(".tab-button").forEach((button) => {
       button.addEventListener("click", () => switchTab(button.dataset.tab));
     });
+    document.querySelectorAll(".mode-button").forEach((button) => {
+      button.addEventListener("click", () => setControlMode(button.dataset.mode));
+    });
     document.getElementById("sendButton").addEventListener("click", sendText);
     document.getElementById("statusButton").addEventListener("click", checkStatus);
     document.getElementById("quickStatusButton").addEventListener("click", checkStatus);
@@ -1028,10 +1210,9 @@ INDEX_HTML = r"""
     document.getElementById("saveNoteButton").addEventListener("click", saveNote);
     document.getElementById("loadSettingsButton").addEventListener("click", loadSettings);
     document.getElementById("saveSettingsButton").addEventListener("click", saveSettings);
-    document.querySelectorAll("[data-command]").forEach((button) => {
+    document.querySelectorAll("[data-app]").forEach((button) => {
       button.addEventListener("click", () => {
-        messageInput.value = button.dataset.command;
-        sendText();
+        runAppAction(button.dataset.app);
       });
     });
 
@@ -1042,6 +1223,7 @@ INDEX_HTML = r"""
       }
     });
 
+    setControlMode(controlMode);
     checkStatus();
   </script>
 </body>
@@ -1167,6 +1349,25 @@ def toggle_app(request: AppToggleRequest, _authorized: None = Depends(verify_tok
         return {"response": f"Nie znam aplikacji: {app_name}.", "result": result}
     except Exception as e:
         return {"response": f"Blad aplikacji: {e}"}
+
+
+@app.post("/phone/command")
+def queue_phone_command(request: PhoneCommandRequest, _authorized: None = Depends(verify_token)):
+    command = {
+        "action": request.action,
+        "target": request.target.strip().lower(),
+    }
+    with phone_commands_lock:
+        phone_commands.append(command)
+    return {"status": "queued"}
+
+
+@app.get("/phone/pending")
+def get_pending_phone_command(_authorized: None = Depends(verify_token)):
+    with phone_commands_lock:
+        if phone_commands:
+            return phone_commands.popleft()
+    return {"action": None}
 
 
 @app.get("/notes")
