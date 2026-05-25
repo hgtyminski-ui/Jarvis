@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 from threading import Lock
 
@@ -27,6 +27,18 @@ def get_runtime():
     return runtime
 
 
+def verify_token(x_jarvis_token: str | None = Header(default=None)):
+    try:
+        from config import load_config
+
+        expected_token = load_config().get("api_token")
+    except Exception:
+        expected_token = None
+
+    if not expected_token or x_jarvis_token != expected_token:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
 @app.get("/status")
 def get_status():
     try:
@@ -41,7 +53,7 @@ def get_status():
 
 
 @app.post("/chat")
-def chat(request: ChatRequest):
+def chat(request: ChatRequest, _authorized: None = Depends(verify_token)):
     try:
         with runtime_lock:
             result = get_runtime().process(request.message)
@@ -51,7 +63,7 @@ def chat(request: ChatRequest):
 
 
 @app.post("/command")
-def command(request: CommandRequest):
+def command(request: CommandRequest, _authorized: None = Depends(verify_token)):
     try:
         with runtime_lock:
             result = get_runtime().process(request.command)
