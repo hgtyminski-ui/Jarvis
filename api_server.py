@@ -636,6 +636,14 @@ INDEX_HTML = r"""
             <div class="status-row"><span>Model</span><span id="modelValue">unknown</span></div>
           </div>
 
+          <h2 class="panel-title">TELEFON</h2>
+          <div class="status-list">
+            <div class="status-row"><span>Telefon</span><span id="phoneOnlineValue">Brak danych</span></div>
+            <div class="status-row"><span>Ostatnio widziany</span><span id="phoneSeenValue">brak</span></div>
+            <div class="status-row"><span>Ostatnia komenda</span><span id="phoneCommandValue">brak</span></div>
+            <div class="status-row"><span>Kolejka</span><span id="phoneQueueValue">0</span></div>
+          </div>
+
           <label for="token">API Token</label>
           <input id="token" class="hud-input" type="password" autocomplete="current-password" placeholder="X-Jarvis-Token">
         </section>
@@ -765,6 +773,10 @@ INDEX_HTML = r"""
     const backendValue = document.getElementById("backendValue");
     const lmValue = document.getElementById("lmValue");
     const modelValue = document.getElementById("modelValue");
+    const phoneOnlineValue = document.getElementById("phoneOnlineValue");
+    const phoneSeenValue = document.getElementById("phoneSeenValue");
+    const phoneCommandValue = document.getElementById("phoneCommandValue");
+    const phoneQueueValue = document.getElementById("phoneQueueValue");
     const appsList = document.getElementById("appsList");
     const appsInfo = document.getElementById("appsInfo");
     const notesList = document.getElementById("notesList");
@@ -772,24 +784,7 @@ INDEX_HTML = r"""
     const noteContent = document.getElementById("noteContent");
     const noteDetails = document.getElementById("noteDetails");
     let controlMode = localStorage.getItem("jarvis_control_mode") || "pc";
-    const mobileDeepLinks = {
-      spotify: "spotify:",
-      youtube: "vnd.youtube://",
-      netflix: "nflx://",
-      steam: "steam://",
-      discord: "discord://",
-      whatsapp: "whatsapp://",
-      teams: "msteams://"
-    };
-    const mobileFallbackLinks = {
-      spotify: "https://open.spotify.com",
-      youtube: "https://www.youtube.com",
-      netflix: "https://www.netflix.com",
-      steam: "https://store.steampowered.com",
-      discord: "https://discord.com/app",
-      whatsapp: "https://web.whatsapp.com",
-      teams: "https://teams.microsoft.com"
-    };
+    const phoneAppTargets = ["spotify", "youtube", "netflix", "steam", "discord", "whatsapp", "teams"];
 
     tokenInput.value = localStorage.getItem("jarvis_api_token") || "";
     tokenInput.addEventListener("input", () => {
@@ -829,6 +824,35 @@ INDEX_HTML = r"""
       addHistory("ERR", text, "error");
     }
 
+    function setPhoneStatusFields({ online = false, last_seen = null, last_command = null, queue_size = null } = {}) {
+      phoneOnlineValue.textContent = online ? "Online" : "Offline";
+      phoneSeenValue.textContent = last_seen || "brak";
+      phoneCommandValue.textContent = last_command || "brak";
+      phoneQueueValue.textContent = queue_size ?? "brak";
+    }
+
+    async function refreshPhoneStatus({ log = false } = {}) {
+      try {
+        const response = await fetch("/phone/status", { headers: authHeaders() });
+        if (response.status === 401) {
+          setPhoneStatusFields();
+          if (log) addHistory("AUTH", "Unauthorized", "error");
+          return false;
+        }
+        const data = await response.json();
+        setPhoneStatusFields(data);
+        if (log) {
+          const state = data.online ? "Online" : "Offline";
+          addHistory("PHONE", `Telefon: ${state}, kolejka: ${data.queue_size ?? "brak"}`, data.online ? "ok" : "error");
+        }
+        return data;
+      } catch (error) {
+        setPhoneStatusFields();
+        if (log) addHistory("PHONE", "Brak danych", "error");
+        return false;
+      }
+    }
+
     function setControlMode(mode) {
       controlMode = mode === "phone" ? "phone" : "pc";
       localStorage.setItem("jarvis_control_mode", controlMode);
@@ -861,7 +885,7 @@ INDEX_HTML = r"""
       for (const prefix of prefixes) {
         if (!normalized.startsWith(prefix)) continue;
         const appName = normalized.slice(prefix.length).trim();
-        if (mobileDeepLinks[appName]) return appName;
+        if (phoneAppTargets.includes(appName)) return appName;
       }
       return "";
     }
@@ -890,7 +914,7 @@ INDEX_HTML = r"""
       if (controlMode === "phone") {
         const mobileApp = mobileAppFromOpenCommand(text);
         if (mobileApp) {
-          openMobileApp(mobileApp);
+          queuePhoneCommand(mobileApp);
           return;
         }
       }
@@ -923,30 +947,46 @@ INDEX_HTML = r"""
       }
     }
 
-    function openMobileApp(appName) {
+    async function queuePhoneCommand(appName) {
       const key = String(appName || "").toLowerCase();
-      const deepLink = mobileDeepLinks[key];
-      const fallbackLink = mobileFallbackLinks[key];
 
-      if (!deepLink || !fallbackLink) {
-        addHistory("PHONE", `Brak linku mobilnego dla: ${key}`, "error");
+      if (!phoneAppTargets.includes(key)) {
+        addHistory("PHONE", `Brak obsługi telefonu dla: ${key}`, "error");
         return;
       }
 
-      addHistory("PHONE", `Otwieram aplikacje: ${key}`, "ok");
-      window.location.href = deepLink;
-      window.setTimeout(() => {
-        if (document.visibilityState !== "visible") {
+      const status = await refreshPhoneStatus();
+      if (status && !status.online) {
+        addHistory("PHONE", "Telefon offline. Komenda zostanie dodana do kolejki.", "error");
+      } else if (!status) {
+        addHistory("PHONE", "Nie można sprawdzić statusu telefonu. Próbuję dodać komendę do kolejki.", "error");
+      }
+
+      try {
+        const response = await fetch("/phone/command", {
+          method: "POST",
+          headers: authHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ action: "open_mobile_app", target: key })
+        });
+        if (response.status === 401) {
+          addHistory("AUTH", "Unauthorized", "error");
           return;
         }
-        addHistory("PHONE", "Nie udało się otworzyć aplikacji, otwieram wersję web.", "error");
-        window.location.href = fallbackLink;
-      }, 900);
+        await response.json();
+        const message = `Wysłano komendę do telefonu: ${key}`;
+        addHistory("PHONE", message, "ok");
+        if (appsInfo) appsInfo.textContent = message;
+        refreshPhoneStatus();
+      } catch (error) {
+        const message = "Brak połączenia z backendem";
+        addHistory("PHONE", message, "error");
+        if (appsInfo) appsInfo.textContent = message;
+      }
     }
 
     function runAppAction(appName) {
       if (controlMode === "phone") {
-        openMobileApp(appName);
+        queuePhoneCommand(appName);
         return;
       }
       sendBackendCommand(`otworz ${appName}`);
@@ -966,8 +1006,9 @@ INDEX_HTML = r"""
         lmValue.textContent = "unknown";
         modelValue.textContent = "unknown";
         topSignal.textContent = "LINK: OFFLINE";
-        addHistory("STATUS", String(error), "error");
+        addHistory("STATUS", "Brak połączenia z backendem", "error");
       }
+      refreshPhoneStatus({ log: true });
     }
 
     async function loadApps() {
@@ -976,7 +1017,7 @@ INDEX_HTML = r"""
         const response = await fetch("/apps", { headers: authHeaders() });
         const data = await readJson(response);
         appsList.textContent = "";
-        const apps = controlMode === "phone" ? mergeMobileApps(data.apps) : data.apps;
+        const apps = controlMode === "phone" ? mergePhoneApps(data.apps) : data.apps;
         apps.forEach((app) => {
           const row = document.createElement("div");
           row.className = "list-row app-row";
@@ -985,16 +1026,16 @@ INDEX_HTML = r"""
           title.textContent = app.name;
           const state = document.createElement("span");
           state.className = "subtle";
-          state.textContent = app.running ? "uruchomiona" : "zamknieta";
+          state.textContent = controlMode === "phone" ? "kolejka telefonu" : (app.running ? "uruchomiona" : "zamknieta");
           name.append(title, state);
           const button = document.createElement("button");
           button.type = "button";
           if (controlMode === "phone") {
-            const hasMobileLink = Boolean(mobileDeepLinks[app.name]);
-            button.className = hasMobileLink ? "success" : "";
-            button.textContent = hasMobileLink ? "Otworz" : "Brak linku";
-            button.disabled = !hasMobileLink;
-            button.addEventListener("click", () => openMobileApp(app.name));
+            const hasPhoneTarget = phoneAppTargets.includes(app.name);
+            button.className = hasPhoneTarget ? "success" : "";
+            button.textContent = hasPhoneTarget ? "Otwórz na telefonie" : "Brak obsługi";
+            button.disabled = !hasPhoneTarget;
+            button.addEventListener("click", () => queuePhoneCommand(app.name));
           } else {
             button.className = app.running ? "danger" : "success";
             button.textContent = app.running ? "Zamknij" : "Otworz";
@@ -1004,12 +1045,12 @@ INDEX_HTML = r"""
           appsList.append(row);
         });
         appsInfo.textContent = controlMode === "phone"
-          ? `Tryb telefonu: ${apps.length} linkow mobilnych`
+          ? `Tryb telefonu: ${apps.length} aplikacji w kolejce backendu`
           : `Aplikacje: ${apps.length}`;
       } catch (error) {
         if (controlMode === "phone") {
           appsList.textContent = "";
-          const apps = mergeMobileApps([]);
+          const apps = mergePhoneApps([]);
           apps.forEach((app) => {
             const row = document.createElement("div");
             row.className = "list-row app-row";
@@ -1018,17 +1059,17 @@ INDEX_HTML = r"""
             title.textContent = app.name;
             const state = document.createElement("span");
             state.className = "subtle";
-            state.textContent = "link mobilny";
+            state.textContent = "kolejka telefonu";
             name.append(title, state);
             const button = document.createElement("button");
             button.type = "button";
             button.className = "success";
-            button.textContent = "Otworz";
-            button.addEventListener("click", () => openMobileApp(app.name));
+            button.textContent = "Otwórz na telefonie";
+            button.addEventListener("click", () => queuePhoneCommand(app.name));
             row.append(name, button);
             appsList.append(row);
           });
-          appsInfo.textContent = "Tryb telefonu: lista lokalnych linkow mobilnych.";
+          appsInfo.textContent = "Tryb telefonu: komendy są wysyłane do backendu.";
           addHistory("AUTH", String(error.message || error), "error");
           return;
         }
@@ -1036,10 +1077,10 @@ INDEX_HTML = r"""
       }
     }
 
-    function mergeMobileApps(apps) {
+    function mergePhoneApps(apps) {
       const byName = new Map();
       apps.forEach((app) => byName.set(app.name, app));
-      Object.keys(mobileDeepLinks).forEach((name) => {
+      phoneAppTargets.forEach((name) => {
         if (!byName.has(name)) {
           byName.set(name, { name, running: false });
         }
@@ -1228,6 +1269,7 @@ INDEX_HTML = r"""
 
     setControlMode(controlMode);
     checkStatus();
+    window.setInterval(() => refreshPhoneStatus(), 4000);
   </script>
 </body>
 </html>
