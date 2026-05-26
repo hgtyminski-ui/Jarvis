@@ -661,6 +661,13 @@ INDEX_HTML = r"""
             <div class="status-row"><span>Kolejka</span><span id="phoneQueueValue">0</span></div>
           </div>
 
+          <h2 class="panel-title">AGENT</h2>
+          <div class="status-list">
+            <div class="status-row"><span>Agent PC</span><span id="agentOnlineValue">Offline</span></div>
+            <div class="status-row"><span>Device ID</span><span id="agentDeviceValue">hubert-pc</span></div>
+            <div class="status-row"><span>Lista agentów</span><span id="agentListValue">brak</span></div>
+          </div>
+
           <label for="token">API Token</label>
           <input id="token" class="hud-input" type="password" autocomplete="current-password" placeholder="X-Jarvis-Token">
         </section>
@@ -808,6 +815,9 @@ INDEX_HTML = r"""
     const phoneSeenValue = document.getElementById("phoneSeenValue");
     const phoneCommandValue = document.getElementById("phoneCommandValue");
     const phoneQueueValue = document.getElementById("phoneQueueValue");
+    const agentOnlineValue = document.getElementById("agentOnlineValue");
+    const agentDeviceValue = document.getElementById("agentDeviceValue");
+    const agentListValue = document.getElementById("agentListValue");
     const appsList = document.getElementById("appsList");
     const appsInfo = document.getElementById("appsInfo");
     const notesList = document.getElementById("notesList");
@@ -881,6 +891,37 @@ INDEX_HTML = r"""
       phoneSeenValue.textContent = last_seen || "brak";
       phoneCommandValue.textContent = last_command || "brak";
       phoneQueueValue.textContent = queue_size ?? "brak";
+    }
+
+    function setAgentStatusFields(agents = []) {
+      const currentDeviceId = deviceId();
+      const agentList = Array.isArray(agents) ? agents : [];
+      agentDeviceValue.textContent = currentDeviceId;
+      agentListValue.textContent = agentList.length ? agentList.join(", ") : "brak";
+      agentOnlineValue.textContent = agentList.includes(currentDeviceId) ? "Online" : "Offline";
+    }
+
+    async function refreshAgentStatus({ log = false } = {}) {
+      try {
+        const response = await fetch(hubUrl("/agents"), { headers: hubHeaders() });
+        if (response.status === 401) {
+          setAgentStatusFields([]);
+          if (log) addHistory("AUTH", "Unauthorized", "error");
+          return false;
+        }
+        if (!response.ok) throw new Error("offline");
+        const data = await response.json();
+        const agents = Array.isArray(data.agents) ? data.agents : [];
+        setAgentStatusFields(agents);
+        if (log) {
+          addHistory("AGENT", `Agent PC: ${agents.includes(deviceId()) ? "Online" : "Offline"}`, agents.includes(deviceId()) ? "ok" : "error");
+        }
+        return agents;
+      } catch (error) {
+        setAgentStatusFields([]);
+        if (log) addHistory("AGENT", "Agent PC: Offline", "error");
+        return false;
+      }
     }
 
     async function refreshPhoneStatus({ log = false } = {}) {
@@ -970,9 +1011,11 @@ INDEX_HTML = r"""
         if (action && action !== "chat") {
           addHistory("CMD", `${action}${command.app ? `: ${command.app}` : ""}`);
         }
+        refreshAgentStatus();
       } catch (error) {
         hubValue.textContent = "Offline";
         addHistory("HUB", "Hub offline", "error");
+        refreshAgentStatus();
       }
     }
 
@@ -1083,6 +1126,7 @@ INDEX_HTML = r"""
         hubValue.textContent = "Offline";
         addHistory("HUB", "Hub: Offline", "error");
       }
+      refreshAgentStatus({ log: true });
     }
 
     async function loadApps() {
@@ -1347,7 +1391,9 @@ INDEX_HTML = r"""
 
     setControlMode(controlMode);
     checkStatus();
+    refreshAgentStatus();
     window.setInterval(() => refreshPhoneStatus(), 4000);
+    window.setInterval(() => refreshAgentStatus(), 5000);
   </script>
 </body>
 </html>
