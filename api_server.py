@@ -3,8 +3,9 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
+from typing import Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
@@ -28,6 +29,8 @@ phone_command_queue = deque()
 phone_command_queue_lock = Lock()
 last_phone_seen = None
 last_phone_command = None
+connected_agents = {}
+connected_agents_lock = Lock()
 
 SAFE_SETTINGS = [
     "voice_enabled",
@@ -51,6 +54,11 @@ class CommandRequest(BaseModel):
 class ProcessTextRequest(BaseModel):
     text: str = ""
     device_id: str | None = "local-pc"
+
+
+class AgentCommandRequest(BaseModel):
+    device_id: str
+    command: dict[str, Any]
 
 
 class AppToggleRequest(BaseModel):
@@ -1356,6 +1364,52 @@ def get_status():
             "lm_studio": "offline",
             "model": "local-model",
         }
+
+
+@app.websocket("/agent/connect/{device_id}")
+async def connect_agent(websocket: WebSocket, device_id: str):
+    await websocket.accept()
+    with connected_agents_lock:
+        connected_agents[device_id] = websocket
+
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        with connected_agents_lock:
+            if connected_agents.get(device_id) is websocket:
+                connected_agents.pop(device_id, None)
+
+
+@app.get("/agents")
+def get_agents(_authorized: None = Depends(verify_token)):
+    with connected_agents_lock:
+        agents = sorted(connected_agents.keys())
+    return {"agents": agents}
+
+
+@app.post("/agent/command")
+async def send_agent_command(
+    request: AgentCommandRequest,
+    _authorized: None = Depends(verify_token),
+):
+    with connected_agents_lock:
+        websocket = connected_agents.get(request.device_id)
+
+    if websocket is None:
+        raise HTTPException(status_code=404, detail="Agent not connected")
+
+    try:
+        await websocket.send_json(request.command)
+    except Exception:
+        with connected_agents_lock:
+            if connected_agents.get(request.device_id) is websocket:
+                connected_agents.pop(request.device_id, None)
+        raise HTTPException(status_code=404, detail="Agent not connected")
+
+    return {"status": "sent"}
 
 
 @app.post("/chat")
