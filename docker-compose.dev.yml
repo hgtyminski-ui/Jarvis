@@ -1,0 +1,22 @@
+services:
+  jarvis-processor:
+    build:
+      context: ./services/jarvis-processor
+    environment:
+      LLM_PROVIDER: lmstudio
+      LLM_BASE_URL: http://host.docker.internal:1233/v1
+      LLM_MODEL: local-model
+      LLM_API_KEY: lm-studio
+    ports:
+      - "8001:8001"
+
+  jarvis-hub:
+    build:
+      context: ./services/jarvis-hub
+    environment:
+      JARVIS_PROCESSOR_URL: http://jarvis-processor:8001
+      AUTH_TOKEN: dev-token
+    depends_on:
+      - jarvis-processor
+    ports:
+      - "8002:8002"

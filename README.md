@@ -55,3 +55,22 @@ Aliasy sa zdefiniowane w `aliases.json`. Plik mapuje nazwe docelowa na liste ali
 - `voice_enabled` i ustawienia `voice_*` / `edge_*` - konfiguracja glosu
 - `microphone_device`, `sample_rate`, `record_seconds` - ustawienia mikrofonu
 - `whisper_model`, `whisper_device`, `whisper_compute_type` - ustawienia rozpoznawania mowy
+
+## Standalone Hub/Processor dev stack
+
+Eksperymentalne serwisy `Jarvis Hub` i `Jarvis Processor` mozna uruchomic przez Docker Compose:
+
+```bash
+docker compose -f docker-compose.dev.yml up --build
+```
+
+Wymagania:
+
+- LM Studio musi dzialac na PC na porcie `1233`.
+- Jarvis Processor jest wystawiony na `127.0.0.1:8001`.
+- Jarvis Hub jest wystawiony na `127.0.0.1:8002`.
+- Agent nadal jest uruchamiany lokalnie:
+
+```bash
+python jarvis_agent.py
+```
