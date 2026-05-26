@@ -2,6 +2,7 @@ services:
   jarvis-processor:
     build:
       context: ./services/jarvis-processor
+    command: uvicorn main:app --host 0.0.0.0 --port 8001
     environment:
       LLM_PROVIDER: lmstudio
       LLM_BASE_URL: http://host.docker.internal:1233/v1
@@ -13,6 +14,7 @@ services:
   jarvis-hub:
     build:
       context: ./services/jarvis-hub
+    command: uvicorn main:app --host 0.0.0.0 --port 8002
     environment:
       JARVIS_PROCESSOR_URL: http://jarvis-processor:8001
       AUTH_TOKEN: dev-token
