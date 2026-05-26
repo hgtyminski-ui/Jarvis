@@ -1,25 +1,54 @@
-# private config
+# === SECRETS & CONFIG ===
 config.json
 
-# python cache
+# === PYTHON ===
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
 
-# build files
-build/
-dist/
-*.spec
-
-# logs/temp
-*.log
-*.tmp
-input.wav
-speech.mp3
-
-# virtual env
+# === VIRTUAL ENVIRONMENTS ===
 .venv/
 venv/
+env/
+ENV/
 
-# OS
+# === PYINSTALLER BUILD ===
+build/
+dist/
+*.spec.bak
+
+# === DISTRIBUTION / PACKAGING ===
+*.egg
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+MANIFEST
+
+# === TESTING ===
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# === AUDIO / TEMP FILES ===
+input.wav
+*.wav
+*.mp3
+tts_cache/
+
+# === LOGS ===
+*.log
+*.tmp
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# === OS ===
 .DS_Store
 Thumbs.db
+desktop.ini
