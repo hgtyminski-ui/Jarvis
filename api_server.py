@@ -48,6 +48,11 @@ class CommandRequest(BaseModel):
     command: str
 
 
+class ProcessTextRequest(BaseModel):
+    text: str = ""
+    device_id: str | None = "local-pc"
+
+
 class AppToggleRequest(BaseModel):
     app: str
 
@@ -1287,6 +1292,11 @@ def get_runtime():
     return runtime
 
 
+def process_jarvis_text(text: str):
+    with runtime_lock:
+        return get_runtime().process(text)
+
+
 def verify_token(x_jarvis_token: str | None = Header(default=None)):
     try:
         expected_token = load_config().get("api_token")
@@ -1351,8 +1361,7 @@ def get_status():
 @app.post("/chat")
 def chat(request: ChatRequest, _authorized: None = Depends(verify_token)):
     try:
-        with runtime_lock:
-            result = get_runtime().process(request.message)
+        result = process_jarvis_text(request.message)
         return {"response": result.response}
     except Exception as e:
         return {"response": f"Blad Jarvisa: {e}"}
@@ -1361,11 +1370,32 @@ def chat(request: ChatRequest, _authorized: None = Depends(verify_token)):
 @app.post("/command")
 def command(request: CommandRequest, _authorized: None = Depends(verify_token)):
     try:
-        with runtime_lock:
-            result = get_runtime().process(request.command)
+        result = process_jarvis_text(request.command)
         return {"response": result.response}
     except Exception as e:
         return {"response": f"Blad Jarvisa: {e}"}
+
+
+@app.post("/process-text")
+def process_text(request: ProcessTextRequest, _authorized: None = Depends(verify_token)):
+    text = request.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Text is required")
+
+    device_id = request.device_id or "local-pc"
+
+    try:
+        result = process_jarvis_text(text)
+        return {
+            "status": "ok",
+            "response": result.response,
+            "device_id": device_id,
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "response": f"Blad Jarvisa: {e}",
+        }
 
 
 @app.get("/apps")
