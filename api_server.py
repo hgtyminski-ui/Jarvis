@@ -648,6 +648,7 @@ INDEX_HTML = r"""
           <h2 class="panel-title">SYSTEM STATUS</h2>
           <div class="status-list">
             <div class="status-row"><span>Backend</span><span id="backendValue">unknown</span></div>
+            <div class="status-row"><span>Hub</span><span id="hubValue">unknown</span></div>
             <div class="status-row"><span>LM Studio</span><span id="lmValue">unknown</span></div>
             <div class="status-row"><span>Model</span><span id="modelValue">unknown</span></div>
           </div>
@@ -686,6 +687,7 @@ INDEX_HTML = r"""
               <button type="button" data-app="steam">Steam</button>
               <button type="button" data-app="netflix">Netflix</button>
               <button id="quickStatusButton" type="button">Status</button>
+              <button id="hubStatusButton" type="button">Status Hub</button>
             </div>
           </div>
         </section>
@@ -742,6 +744,18 @@ INDEX_HTML = r"""
         <h2 class="panel-title">USTAWIENIA</h2>
         <div class="settings-grid">
           <div>
+            <label for="hubUrl">Hub URL</label>
+            <input id="hubUrl" class="hud-input" type="text">
+          </div>
+          <div>
+            <label for="hubToken">Hub Token</label>
+            <input id="hubToken" class="hud-input" type="password" autocomplete="current-password">
+          </div>
+          <div>
+            <label for="deviceId">Device ID</label>
+            <input id="deviceId" class="hud-input" type="text">
+          </div>
+          <div>
             <label for="voiceEnabled">voice_enabled</label>
             <select id="voiceEnabled">
               <option value="true">true</option>
@@ -787,6 +801,7 @@ INDEX_HTML = r"""
     const historyEl = document.getElementById("history");
     const topSignal = document.getElementById("topSignal");
     const backendValue = document.getElementById("backendValue");
+    const hubValue = document.getElementById("hubValue");
     const lmValue = document.getElementById("lmValue");
     const modelValue = document.getElementById("modelValue");
     const phoneOnlineValue = document.getElementById("phoneOnlineValue");
@@ -799,6 +814,9 @@ INDEX_HTML = r"""
     const noteTitle = document.getElementById("noteTitle");
     const noteContent = document.getElementById("noteContent");
     const noteDetails = document.getElementById("noteDetails");
+    const hubUrlInput = document.getElementById("hubUrl");
+    const hubTokenInput = document.getElementById("hubToken");
+    const deviceIdInput = document.getElementById("deviceId");
     let controlMode = localStorage.getItem("jarvis_control_mode") || "pc";
     const phoneAppTargets = ["spotify", "youtube", "netflix", "steam", "discord", "whatsapp", "teams"];
 
@@ -806,9 +824,27 @@ INDEX_HTML = r"""
     tokenInput.addEventListener("input", () => {
       localStorage.setItem("jarvis_api_token", tokenInput.value);
     });
+    hubUrlInput.value = localStorage.getItem("jarvis_hub_url") || "http://127.0.0.1:8002";
+    hubTokenInput.value = localStorage.getItem("jarvis_hub_token") || "dev-token";
+    deviceIdInput.value = localStorage.getItem("jarvis_device_id") || "hubert-pc";
+    hubUrlInput.addEventListener("input", () => localStorage.setItem("jarvis_hub_url", hubUrlInput.value));
+    hubTokenInput.addEventListener("input", () => localStorage.setItem("jarvis_hub_token", hubTokenInput.value));
+    deviceIdInput.addEventListener("input", () => localStorage.setItem("jarvis_device_id", deviceIdInput.value));
 
     function authHeaders(extra = {}) {
       return { ...extra, "X-Jarvis-Token": tokenInput.value };
+    }
+
+    function hubUrl(path = "") {
+      return `${(hubUrlInput.value || "http://127.0.0.1:8002").replace(/\/+$/, "")}${path}`;
+    }
+
+    function hubHeaders(extra = {}) {
+      return { ...extra, "X-Jarvis-Token": hubTokenInput.value || "dev-token" };
+    }
+
+    function deviceId() {
+      return deviceIdInput.value.trim() || "hubert-pc";
     }
 
     function timestamp() {
@@ -906,6 +942,40 @@ INDEX_HTML = r"""
       return "";
     }
 
+    async function sendHubProcessText(text) {
+      addHistory("TX", text);
+      try {
+        const response = await fetch(hubUrl("/process-text"), {
+          method: "POST",
+          headers: hubHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ text, device_id: deviceId() })
+        });
+        if (response.status === 401) {
+          addHistory("AUTH", "Unauthorized", "error");
+          return;
+        }
+        const data = await response.json();
+        const command = data.command || {};
+        const parameters = command.parameters || {};
+        const action = command.action || "";
+        const message = (
+          data.response ||
+          command.response ||
+          parameters.response ||
+          parameters.message ||
+          command.message ||
+          (action === "chat" ? "Brak tekstu odpowiedzi z Huba" : "Brak odpowiedzi z Huba")
+        );
+        addHistory("RX", message, data.status === "error" ? "error" : "ok");
+        if (action && action !== "chat") {
+          addHistory("CMD", `${action}${command.app ? `: ${command.app}` : ""}`);
+        }
+      } catch (error) {
+        hubValue.textContent = "Offline";
+        addHistory("HUB", "Hub offline", "error");
+      }
+    }
+
     function switchTab(tabName) {
       document.querySelectorAll(".tab-button").forEach((button) => {
         button.classList.toggle("active", button.dataset.tab === tabName);
@@ -922,9 +992,6 @@ INDEX_HTML = r"""
       const text = messageInput.value.trim();
       if (!text) return;
 
-      const endpoint = isCommand(text) ? "/command" : "/chat";
-      const bodyKey = endpoint === "/command" ? "command" : "message";
-      addHistory("TX", text);
       messageInput.value = "";
 
       if (controlMode === "phone") {
@@ -935,32 +1002,11 @@ INDEX_HTML = r"""
         }
       }
 
-      try {
-        const response = await fetch(endpoint, {
-          method: "POST",
-          headers: authHeaders({ "Content-Type": "application/json" }),
-          body: JSON.stringify({ [bodyKey]: text })
-        });
-        const data = await readJson(response);
-        addHistory("RX", data.response || "", response.ok ? "ok" : "error");
-      } catch (error) {
-        addHistory("AUTH", String(error.message || error), "error");
-      }
+      sendHubProcessText(text);
     }
 
     async function sendBackendCommand(commandText) {
-      addHistory("TX", commandText);
-      try {
-        const response = await fetch("/command", {
-          method: "POST",
-          headers: authHeaders({ "Content-Type": "application/json" }),
-          body: JSON.stringify({ command: commandText })
-        });
-        const data = await readJson(response);
-        addHistory("RX", data.response || "", response.ok ? "ok" : "error");
-      } catch (error) {
-        addHistory("AUTH", String(error.message || error), "error");
-      }
+      sendHubProcessText(commandText);
     }
 
     async function queuePhoneCommand(appName) {
@@ -1025,6 +1071,18 @@ INDEX_HTML = r"""
         addHistory("STATUS", "Brak połączenia z backendem", "error");
       }
       refreshPhoneStatus({ log: true });
+    }
+
+    async function checkHubStatus() {
+      try {
+        const response = await fetch(hubUrl("/health"));
+        if (!response.ok) throw new Error("offline");
+        hubValue.textContent = "Online";
+        addHistory("HUB", "Hub: Online", "ok");
+      } catch (error) {
+        hubValue.textContent = "Offline";
+        addHistory("HUB", "Hub: Offline", "error");
+      }
     }
 
     async function loadApps() {
@@ -1204,6 +1262,9 @@ INDEX_HTML = r"""
 
     async function loadSettings() {
       try {
+        hubUrlInput.value = localStorage.getItem("jarvis_hub_url") || hubUrlInput.value || "http://127.0.0.1:8002";
+        hubTokenInput.value = localStorage.getItem("jarvis_hub_token") || hubTokenInput.value || "dev-token";
+        deviceIdInput.value = localStorage.getItem("jarvis_device_id") || deviceIdInput.value || "hubert-pc";
         const response = await fetch("/settings", { headers: authHeaders() });
         const data = await readJson(response);
         document.getElementById("voiceEnabled").value = String(Boolean(data.voice_enabled));
@@ -1263,6 +1324,7 @@ INDEX_HTML = r"""
     document.getElementById("sendButton").addEventListener("click", sendText);
     document.getElementById("statusButton").addEventListener("click", checkStatus);
     document.getElementById("quickStatusButton").addEventListener("click", checkStatus);
+    document.getElementById("hubStatusButton").addEventListener("click", checkHubStatus);
     document.getElementById("refreshAppsButton").addEventListener("click", loadApps);
     document.getElementById("refreshNotesButton").addEventListener("click", loadNotes);
     document.getElementById("newNoteButton").addEventListener("click", clearNoteEditor);

@@ -2,6 +2,7 @@ import os
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from agent_manager import AgentManager
@@ -11,6 +12,13 @@ from processor_client import interpret_text
 load_dotenv()
 
 app = FastAPI(title="Jarvis Hub")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 agents = AgentManager()
 
 
@@ -26,6 +34,19 @@ def auth_token():
 def verify_token(x_jarvis_token: str | None = Header(default=None)):
     if x_jarvis_token != auth_token():
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def command_response(command: dict):
+    parameters = command.get("parameters")
+    if not isinstance(parameters, dict):
+        parameters = {}
+    response = (
+        command.get("response")
+        or parameters.get("response")
+        or parameters.get("message")
+        or command.get("message")
+    )
+    return str(response) if response else ""
 
 
 @app.get("/health")
@@ -68,6 +89,17 @@ async def process_text(
         }
 
     command = result["command"]
+    action = str(command.get("action") or "").strip().lower()
+
+    if action == "chat":
+        response = command_response(command)
+        return {
+            "status": "ok",
+            "response": response or "Brak tekstu odpowiedzi z Huba",
+            "device_id": request.device_id,
+            "command": command,
+        }
+
     sent = await agents.send_command(request.device_id, command)
     if not sent:
         return {

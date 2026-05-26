@@ -22,6 +22,13 @@ SUPPORTED_ACTIONS = {
 }
 
 DEFAULT_COMMAND = {"action": "unknown", "app": None, "parameters": {}}
+GREETING_COMMAND = {
+    "action": "chat",
+    "app": None,
+    "parameters": {},
+    "response": "Cześć. Jak mogę pomóc?",
+}
+LOCAL_GREETINGS = {"hej", "siema", "czesc"}
 LOCAL_APP_COMMANDS = {
     ("otworz", "spotify"): {"action": "open_app", "app": "spotify", "parameters": {}},
     ("zamknij", "spotify"): {"action": "close_app", "app": "spotify", "parameters": {}},
@@ -39,6 +46,9 @@ def normalize_text(text):
 
 def local_parse(text):
     normalized = normalize_text(text)
+    if normalized in LOCAL_GREETINGS:
+        return GREETING_COMMAND.copy()
+
     for (verb, app_name), command in LOCAL_APP_COMMANDS.items():
         if normalized == f"{verb} {app_name}":
             return command.copy()
@@ -75,19 +85,35 @@ def parse_llm_json(content):
     if not isinstance(parameters, dict):
         parameters = {}
 
-    return {
+    parsed_command = {
         "action": action,
         "app": app_name if app_name is None or isinstance(app_name, str) else str(app_name),
         "parameters": parameters,
     }
 
+    if action == "chat":
+        response = (
+            command.get("response")
+            or parameters.get("response")
+            or parameters.get("message")
+            or command.get("message")
+            or ""
+        )
+        parsed_command["response"] = str(response)
+
+    return parsed_command
+
 
 def interpret_with_llm(text):
     system_prompt = (
-        "You are Jarvis Processor. Return only valid JSON, no markdown. "
+        "You are Jarvis Processor. The user speaks Polish. Return only valid JSON, no markdown. "
+        "Odpowiadaj zawsze po polsku. "
+        "Nie używaj duńskiego, angielskiego ani innych języków, chyba że użytkownik wyraźnie o to poprosi. "
+        "Dla zwykłej rozmowy zwracaj action='chat' i response po polsku. "
         "Schema: {\"command\":{\"action\":\"open_app|close_app|volume_up|volume_down|"
         "volume_mute|system_sleep|system_shutdown|chat|unknown\",\"app\":string|null,"
-        "\"parameters\":{}}}. If unsure, use action unknown."
+        "\"parameters\":{},\"response\":string}}. For action chat, always include "
+        "command.response with the assistant reply in Polish. If unsure, use action unknown."
     )
 
     response = llm_client().chat.completions.create(
