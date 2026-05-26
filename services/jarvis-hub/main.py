@@ -40,6 +40,10 @@ def list_agents(_authorized: None = Depends(verify_token)):
 
 @app.websocket("/agent/connect/{device_id}")
 async def connect_agent(websocket: WebSocket, device_id: str):
+    if websocket.query_params.get("token") != auth_token():
+        await websocket.close(code=1008)
+        return
+
     await agents.connect(device_id, websocket)
     try:
         while True:

@@ -1,5 +1,6 @@
 import asyncio
 import json
+from urllib.parse import quote
 
 import websockets
 
@@ -8,7 +9,8 @@ from config import load_config
 
 
 DEFAULT_DEVICE_ID = "hubert-pc"
-DEFAULT_HUB_URL = "ws://127.0.0.1:8000"
+DEFAULT_HUB_URL = "ws://127.0.0.1:8002"
+DEFAULT_AUTH_TOKEN = "dev-token"
 RECONNECT_SECONDS = 5
 
 
@@ -20,7 +22,8 @@ def load_agent_config():
 
     device_id = str(config.get("device_id") or DEFAULT_DEVICE_ID)
     hub_url = str(config.get("hub_url") or DEFAULT_HUB_URL)
-    return device_id, normalize_hub_url(hub_url)
+    auth_token = str(config.get("auth_token") or DEFAULT_AUTH_TOKEN)
+    return device_id, normalize_hub_url(hub_url), auth_token
 
 
 def normalize_hub_url(hub_url):
@@ -82,8 +85,8 @@ async def handle_command(command):
 
 
 async def run_agent():
-    device_id, hub_url = load_agent_config()
-    websocket_url = f"{hub_url}/agent/connect/{device_id}"
+    device_id, hub_url, auth_token = load_agent_config()
+    websocket_url = f"{hub_url}/agent/connect/{device_id}?token={quote(auth_token, safe='')}"
 
     while True:
         try:
