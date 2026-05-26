@@ -20,5 +20,6 @@
   "whisper_model": "base",
   "whisper_device": "cpu",
   "whisper_compute_type": "int8",
-  "api_token": "exemple_token"
+  "api_token": "exemple_token",
+  "processor_url": "http://127.0.0.1:8001"
 }

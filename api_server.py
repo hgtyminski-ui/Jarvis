@@ -1,4 +1,6 @@
 import json
+import urllib.error
+import urllib.request
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -23,6 +25,7 @@ from notes_manager import NOTES_PATH
 
 
 app = FastAPI(title="Jarvis API", docs_url=None, redoc_url=None, openapi_url=None)
+# TODO: api_server.py pelni teraz role przejsciowego Huba dla Processor/Agent.
 runtime = None
 runtime_lock = Lock()
 phone_command_queue = deque()
@@ -1305,6 +1308,61 @@ def process_jarvis_text(text: str):
         return get_runtime().process(text)
 
 
+def get_processor_url():
+    try:
+        return str(load_config().get("processor_url") or "http://127.0.0.1:8001").rstrip("/")
+    except Exception:
+        return "http://127.0.0.1:8001"
+
+
+def interpret_with_processor(text: str):
+    payload = json.dumps({"text": text}).encode("utf-8")
+    request = urllib.request.Request(
+        f"{get_processor_url()}/interpret",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    with urllib.request.urlopen(request, timeout=8) as response:
+        data = json.loads(response.read().decode("utf-8"))
+
+    command = data.get("command") if isinstance(data, dict) else None
+    if not isinstance(command, dict):
+        return {"action": "unknown", "app": None, "parameters": {}}
+    command.setdefault("parameters", {})
+    if not isinstance(command["parameters"], dict):
+        command["parameters"] = {}
+    return command
+
+
+def get_connected_agent(device_id: str):
+    with connected_agents_lock:
+        return connected_agents.get(device_id)
+
+
+def remove_connected_agent(device_id: str, websocket: WebSocket):
+    with connected_agents_lock:
+        if connected_agents.get(device_id) is websocket:
+            connected_agents.pop(device_id, None)
+
+
+async def send_command_to_agent(device_id: str, command: dict[str, Any]):
+    websocket = get_connected_agent(device_id)
+    if websocket is None:
+        raise HTTPException(status_code=404, detail="Agent not connected")
+
+    try:
+        await websocket.send_json(command)
+    except Exception:
+        remove_connected_agent(device_id, websocket)
+        raise HTTPException(status_code=404, detail="Agent not connected")
+
+
+def is_local_device(device_id: str):
+    return device_id.strip().lower() in {"local-pc", "localhost", "127.0.0.1"}
+
+
 def verify_token(x_jarvis_token: str | None = Header(default=None)):
     try:
         expected_token = load_config().get("api_token")
@@ -1395,20 +1453,7 @@ async def send_agent_command(
     request: AgentCommandRequest,
     _authorized: None = Depends(verify_token),
 ):
-    with connected_agents_lock:
-        websocket = connected_agents.get(request.device_id)
-
-    if websocket is None:
-        raise HTTPException(status_code=404, detail="Agent not connected")
-
-    try:
-        await websocket.send_json(request.command)
-    except Exception:
-        with connected_agents_lock:
-            if connected_agents.get(request.device_id) is websocket:
-                connected_agents.pop(request.device_id, None)
-        raise HTTPException(status_code=404, detail="Agent not connected")
-
+    await send_command_to_agent(request.device_id, request.command)
     return {"status": "sent"}
 
 
@@ -1431,7 +1476,7 @@ def command(request: CommandRequest, _authorized: None = Depends(verify_token)):
 
 
 @app.post("/process-text")
-def process_text(request: ProcessTextRequest, _authorized: None = Depends(verify_token)):
+async def process_text(request: ProcessTextRequest, _authorized: None = Depends(verify_token)):
     text = request.text.strip()
     if not text:
         raise HTTPException(status_code=400, detail="Text is required")
@@ -1439,17 +1484,67 @@ def process_text(request: ProcessTextRequest, _authorized: None = Depends(verify
     device_id = request.device_id or "local-pc"
 
     try:
-        result = process_jarvis_text(text)
-        return {
-            "status": "ok",
-            "response": result.response,
-            "device_id": device_id,
-        }
-    except Exception as e:
+        command = interpret_with_processor(text)
+    except Exception:
         return {
             "status": "error",
-            "response": f"Blad Jarvisa: {e}",
+            "response": "Processor niedostępny.",
         }
+
+    action = str(command.get("action") or "unknown").strip().lower()
+    parameters = command.get("parameters") if isinstance(command.get("parameters"), dict) else {}
+
+    if action in {"open_app", "close_app"}:
+        app_name = str(command.get("app") or parameters.get("app") or "").strip().lower()
+        if not app_name:
+            return {"status": "ok", "response": "Nie rozpoznano polecenia.", "device_id": device_id}
+
+        if not is_local_device(device_id) and get_connected_agent(device_id):
+            await send_command_to_agent(device_id, command)
+            return {
+                "status": "ok",
+                "response": f"Wysłano komendę do agenta: {app_name}",
+                "device_id": device_id,
+            }
+
+        try:
+            if action == "open_app":
+                result = open_app(app_name)
+                response = f"Otwieram {app_name}." if result == "opened" else f"Nie znam aplikacji: {app_name}."
+            else:
+                result = close_app(app_name)
+                response = f"Zamykam {app_name}."
+            return {
+                "status": "ok",
+                "response": response,
+                "device_id": device_id,
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "response": f"Blad akcji: {e}",
+            }
+
+    if action == "chat":
+        response = command.get("response") or parameters.get("response") or ""
+        return {
+            "status": "ok",
+            "response": str(response),
+            "device_id": device_id,
+        }
+
+    if action == "unknown":
+        return {
+            "status": "ok",
+            "response": "Nie rozpoznano polecenia.",
+            "device_id": device_id,
+        }
+
+    return {
+        "status": "ok",
+        "response": "Akcja nieobsługiwana.",
+        "device_id": device_id,
+    }
 
 
 @app.get("/apps")
