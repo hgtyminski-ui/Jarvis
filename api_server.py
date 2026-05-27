@@ -649,8 +649,10 @@ INDEX_HTML = r"""
           <div class="status-list">
             <div class="status-row"><span>Backend</span><span id="backendValue">unknown</span></div>
             <div class="status-row"><span>Hub</span><span id="hubValue">unknown</span></div>
-            <div class="status-row"><span>LM Studio</span><span id="lmValue">unknown</span></div>
+            <div class="status-row"><span>Processor / LLM</span><span id="lmValue">unknown</span></div>
+            <div class="status-row"><span>Tryb</span><span id="modeValue">PC</span></div>
             <div class="status-row"><span>Model</span><span id="modelValue">unknown</span></div>
+            <div class="status-row"><span>API Token</span><span id="apiTokenValue">brak</span></div>
           </div>
 
           <h2 class="panel-title">TELEFON</h2>
@@ -677,31 +679,33 @@ INDEX_HTML = r"""
           <div class="core-wrap">
             <div class="core" aria-label="Jarvis core online">
               <div class="core-tick"></div>
-              <div class="core-label">ONLINE</div>
-            </div>
-          </div>
-
-          <div class="command-panel">
-            <label for="message">COMMAND INPUT</label>
-            <textarea id="message" placeholder="Wpisz wiadomosc albo komende..."></textarea>
-            <div class="send-row">
-              <button id="sendButton" class="primary" type="button">Wyslij</button>
-              <button id="statusButton" type="button">Status</button>
-            </div>
-            <div class="quick-actions">
-              <button type="button" data-app="spotify">Spotify</button>
-              <button type="button" data-app="youtube">YouTube</button>
-              <button type="button" data-app="steam">Steam</button>
-              <button type="button" data-app="netflix">Netflix</button>
-              <button id="quickStatusButton" type="button">Status</button>
-              <button id="hubStatusButton" type="button">Status Hub</button>
+              <div id="coreLabel" class="core-label">READY</div>
             </div>
           </div>
         </section>
 
         <section class="panel log-panel">
+          <div class="log-tools">
+            <button id="hubStatusButton" type="button">STATUS AG</button>
+            <button id="statusButton" type="button">STATUS TELEFON</button>
+          </div>
           <h2 class="panel-title">CONSOLE LOG</h2>
           <div id="history" class="history"></div>
+        </section>
+
+        <section class="panel command-panel">
+          <label for="message">COMMAND INPUT</label>
+          <div class="command-line">
+            <textarea id="message" placeholder="Wpisz wiadomosc albo komende..."></textarea>
+            <button id="sendButton" class="primary" type="button">WYSLIJ</button>
+          </div>
+          <div class="quick-actions">
+            <button type="button" data-app="spotify">Spotify</button>
+            <button type="button" data-app="youtube">YouTube</button>
+            <button type="button" data-app="steam">Steam</button>
+            <button type="button" data-app="netflix">Netflix</button>
+            <button id="quickStatusButton" type="button">Status</button>
+          </div>
         </section>
       </main>
     </section>
@@ -807,10 +811,13 @@ INDEX_HTML = r"""
     const messageInput = document.getElementById("message");
     const historyEl = document.getElementById("history");
     const topSignal = document.getElementById("topSignal");
+    const coreLabel = document.getElementById("coreLabel");
     const backendValue = document.getElementById("backendValue");
     const hubValue = document.getElementById("hubValue");
     const lmValue = document.getElementById("lmValue");
+    const modeValue = document.getElementById("modeValue");
     const modelValue = document.getElementById("modelValue");
+    const apiTokenValue = document.getElementById("apiTokenValue");
     const phoneOnlineValue = document.getElementById("phoneOnlineValue");
     const phoneSeenValue = document.getElementById("phoneSeenValue");
     const phoneCommandValue = document.getElementById("phoneCommandValue");
@@ -833,6 +840,7 @@ INDEX_HTML = r"""
     tokenInput.value = localStorage.getItem("jarvis_api_token") || "";
     tokenInput.addEventListener("input", () => {
       localStorage.setItem("jarvis_api_token", tokenInput.value);
+      updateApiTokenStatus();
     });
     hubUrlInput.value = localStorage.getItem("jarvis_hub_url") || "http://127.0.0.1:8002";
     hubTokenInput.value = localStorage.getItem("jarvis_hub_token") || "dev-token";
@@ -843,6 +851,332 @@ INDEX_HTML = r"""
 
     function authHeaders(extra = {}) {
       return { ...extra, "X-Jarvis-Token": tokenInput.value };
+    }
+
+    /* Minimal standalone HUD redesign */
+    :root {
+      --bg: #030814;
+      --panel: rgba(5, 14, 31, 0.68);
+      --panel-2: rgba(9, 22, 45, 0.62);
+      --cyan: #1fe0ff;
+      --blue: #00a8ff;
+      --purple: #9d7bff;
+      --success: #34ffd0;
+      --danger: #ff4967;
+      --text: #d8f7ff;
+      --muted: #84a8c7;
+      --line: rgba(31, 224, 255, 0.24);
+      --purple-line: rgba(157, 123, 255, 0.2);
+    }
+
+    body {
+      background:
+        radial-gradient(circle at 50% 52%, rgba(31, 224, 255, 0.08), transparent 18%),
+        radial-gradient(circle at 76% 24%, rgba(157, 123, 255, 0.07), transparent 22%),
+        radial-gradient(rgba(31, 224, 255, 0.18) 0.7px, transparent 0.7px),
+        linear-gradient(rgba(31, 224, 255, 0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(31, 224, 255, 0.025) 1px, transparent 1px),
+        var(--bg);
+      background-size: auto, auto, 22px 22px, 72px 72px, 72px 72px, auto;
+      font-family: "Rajdhani", "Orbitron", "Segoe UI", system-ui, sans-serif;
+    }
+
+    body::before {
+      opacity: 0.12;
+      background: linear-gradient(rgba(216, 247, 255, 0.025), transparent 2px);
+      background-size: 100% 6px;
+    }
+
+    .shell {
+      width: 100%;
+      min-height: 100vh;
+      padding: 28px 34px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      max-width: 520px;
+      padding: 0;
+      border: 0;
+      box-shadow: none;
+    }
+
+    h1 {
+      font-size: 1.08rem;
+      font-weight: 800;
+      letter-spacing: 0.18em;
+      color: var(--text);
+      text-shadow: 0 0 14px rgba(31, 224, 255, 0.45);
+    }
+
+    .signal {
+      min-width: 128px;
+      min-height: 30px;
+      padding: 6px 10px;
+      border-radius: 0;
+      font-size: 0.72rem;
+      color: var(--success);
+      background: rgba(3, 8, 20, 0.68);
+    }
+
+    .tabs {
+      display: flex;
+      width: min(520px, 100%);
+      gap: 8px;
+      margin: 14px 0 18px;
+    }
+
+    .mode-switch {
+      position: absolute;
+      top: 28px;
+      right: 34px;
+      width: min(360px, calc(100% - 68px));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      padding: 4px;
+      margin: 0;
+      border-radius: 0;
+      background: rgba(3, 8, 20, 0.52);
+    }
+
+    button,
+    .tab-button,
+    .mode-button {
+      min-height: 30px;
+      border-color: rgba(31, 224, 255, 0.34);
+      border-radius: 0;
+      background: rgba(3, 8, 20, 0.58);
+      color: var(--muted);
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      box-shadow: inset 0 0 12px rgba(31, 224, 255, 0.035);
+    }
+
+    button:hover,
+    .tab-button:hover,
+    .mode-button:hover {
+      color: var(--text);
+      background: rgba(0, 168, 255, 0.12);
+      box-shadow: 0 0 14px rgba(31, 224, 255, 0.16), inset 0 0 12px rgba(31, 224, 255, 0.08);
+    }
+
+    .tab-button.active,
+    .mode-button.active,
+    button.primary {
+      color: var(--cyan);
+      border-color: var(--cyan);
+      background: rgba(31, 224, 255, 0.08);
+      box-shadow: 0 0 18px rgba(31, 224, 255, 0.16), inset 0 0 14px rgba(31, 224, 255, 0.08);
+    }
+
+    .view.active { display: block; }
+
+    #chatView .grid {
+      display: grid;
+      grid-template-columns: 270px minmax(360px, 1fr) 340px;
+      grid-template-rows: minmax(520px, calc(100vh - 210px)) auto;
+      grid-template-areas:
+        "status core log"
+        "command command command";
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    #chatView .grid > .panel:first-child { grid-area: status; }
+    #chatView .core-panel { grid-area: core; }
+    #chatView .log-panel { grid-area: log; }
+    #chatView .command-panel { grid-area: command; }
+
+    .panel {
+      border-radius: 0;
+      border-color: var(--line);
+      background: linear-gradient(180deg, rgba(5, 14, 31, 0.68), rgba(3, 8, 20, 0.42));
+      box-shadow: inset 0 0 22px rgba(31, 224, 255, 0.035), 0 0 28px rgba(0, 0, 0, 0.28);
+      padding: 12px;
+    }
+
+    .panel::before,
+    .panel::after {
+      width: 22px;
+      height: 22px;
+      opacity: 0.82;
+    }
+
+    .panel-title {
+      margin: 0 0 10px;
+      font-size: 0.68rem;
+      letter-spacing: 0.16em;
+      color: var(--cyan);
+    }
+
+    .status-list { gap: 5px; margin-bottom: 14px; }
+
+    .status-row {
+      min-height: 28px;
+      grid-template-columns: 118px minmax(0, 1fr);
+      gap: 8px;
+      border: 0;
+      border-bottom: 1px solid rgba(31, 224, 255, 0.12);
+      border-radius: 0;
+      background: transparent;
+      padding: 4px 0;
+      font-size: 0.78rem;
+    }
+
+    .status-row span:first-child,
+    label {
+      color: var(--muted);
+      font-size: 0.66rem;
+      letter-spacing: 0.12em;
+    }
+
+    .status-row span:last-child {
+      color: var(--text);
+      font-size: 0.78rem;
+      text-align: right;
+    }
+
+    .status-row span:last-child::before {
+      content: "";
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      margin-right: 7px;
+      border-radius: 999px;
+      background: var(--success);
+      box-shadow: 0 0 8px rgba(52, 255, 208, 0.75);
+      vertical-align: 1px;
+    }
+
+    .core-panel {
+      min-height: 0;
+      display: grid;
+      place-items: center;
+      background: transparent;
+      border-color: rgba(31, 224, 255, 0.12);
+    }
+
+    .core-panel .panel-title {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+    }
+
+    .core-wrap {
+      min-height: 0;
+      width: 100%;
+      height: 100%;
+      display: grid;
+      place-items: center;
+    }
+
+    .core {
+      width: min(220px, 38vw);
+      opacity: 0.86;
+      border-color: rgba(31, 224, 255, 0.52);
+      background:
+        radial-gradient(circle, rgba(52, 255, 208, 0.28) 0 7%, transparent 8%),
+        repeating-radial-gradient(circle, rgba(31, 224, 255, 0.14) 0 1px, transparent 1px 24px);
+      box-shadow: 0 0 28px rgba(31, 224, 255, 0.18), inset 0 0 30px rgba(31, 224, 255, 0.08);
+      animation: corePulse 5s ease-in-out infinite;
+    }
+
+    .core-label {
+      align-items: end;
+      padding-bottom: 36%;
+      font-size: 0.82rem;
+      letter-spacing: 0.22em;
+      color: var(--success);
+    }
+
+    @keyframes corePulse {
+      0%, 100% { filter: drop-shadow(0 0 4px rgba(31, 224, 255, 0.32)); transform: scale(1); }
+      50% { filter: drop-shadow(0 0 14px rgba(31, 224, 255, 0.48)); transform: scale(1.018); }
+    }
+
+    .log-panel {
+      min-height: 0;
+      grid-template-rows: auto auto minmax(0, 1fr);
+    }
+
+    .log-tools {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .history {
+      max-height: none;
+      padding: 0;
+      gap: 6px;
+    }
+
+    .entry,
+    .note-content {
+      border-left-width: 1px;
+      background: rgba(9, 22, 45, 0.34);
+      padding: 7px 9px;
+      font-size: 0.78rem;
+    }
+
+    .entry .meta {
+      font-size: 0.64rem;
+      letter-spacing: 0.1em;
+    }
+
+    .command-panel {
+      padding: 10px 12px 12px;
+    }
+
+    .command-line {
+      display: grid;
+      grid-template-columns: 1fr 132px;
+      gap: 10px;
+      align-items: stretch;
+    }
+
+    .command-line textarea {
+      min-height: 44px;
+      height: 44px;
+      resize: none;
+      padding: 11px 12px;
+    }
+
+    .quick-actions {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      margin-top: 8px;
+    }
+
+    .hud-input,
+    textarea,
+    select {
+      border-radius: 0;
+      background: rgba(3, 8, 20, 0.52);
+    }
+
+    .two-col {
+      grid-template-columns: 330px minmax(0, 1fr);
+    }
+
+    @media (max-width: 1050px) {
+      #chatView .grid {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto;
+        grid-template-areas:
+          "status"
+          "core"
+          "log"
+          "command";
+      }
+
+      .mode-switch {
+        position: static;
+        width: 100%;
+        margin: 12px 0 16px;
+      }
     }
 
     function hubUrl(path = "") {
@@ -871,6 +1205,14 @@ INDEX_HTML = r"""
       body.textContent = text;
       entry.append(meta, body);
       historyEl.prepend(entry);
+    }
+
+    function updateApiTokenStatus() {
+      apiTokenValue.textContent = tokenInput.value ? "••••••" : "brak";
+    }
+
+    function setCoreState(state) {
+      coreLabel.textContent = state;
     }
 
     async function readJson(response) {
@@ -953,6 +1295,7 @@ INDEX_HTML = r"""
         button.classList.toggle("active", button.dataset.mode === controlMode);
       });
       topSignal.textContent = controlMode === "phone" ? "MODE: PHONE" : "MODE: PC";
+      modeValue.textContent = controlMode === "phone" ? "Telefon" : "PC";
       addHistory("MODE", controlMode === "phone" ? "Steruj telefonem" : "Steruj PC", "ok");
       if (document.getElementById("appsView").classList.contains("active")) {
         loadApps();
@@ -985,6 +1328,7 @@ INDEX_HTML = r"""
 
     async function sendHubProcessText(text) {
       addHistory("TX", text);
+      setCoreState("PROCESSING");
       try {
         const response = await fetch(hubUrl("/process-text"), {
           method: "POST",
@@ -993,6 +1337,7 @@ INDEX_HTML = r"""
         });
         if (response.status === 401) {
           addHistory("AUTH", "Unauthorized", "error");
+          setCoreState("READY");
           return;
         }
         const data = await response.json();
@@ -1011,10 +1356,12 @@ INDEX_HTML = r"""
         if (action && action !== "chat") {
           addHistory("CMD", `${action}${command.app ? `: ${command.app}` : ""}`);
         }
+        setCoreState("READY");
         refreshAgentStatus();
       } catch (error) {
         hubValue.textContent = "Offline";
         addHistory("HUB", "Hub offline", "error");
+        setCoreState("OFFLINE");
         refreshAgentStatus();
       }
     }
@@ -1390,6 +1737,7 @@ INDEX_HTML = r"""
     });
 
     setControlMode(controlMode);
+    updateApiTokenStatus();
     checkStatus();
     refreshAgentStatus();
     window.setInterval(() => refreshPhoneStatus(), 4000);

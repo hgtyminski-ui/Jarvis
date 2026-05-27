@@ -38,19 +38,22 @@ except ImportError:
     psutil = None
 
 
-BG = "#05070d"
-PANEL = "#0b1220"
-PANEL_2 = "#0f1b2d"
-CYAN = "#00eaff"
-BLUE = "#2f7dff"
-PURPLE = "#8a5cff"
-GREEN = "#20e080"
-GREEN_HOVER = "#27f090"
-RED = "#ff3b5c"
-RED_HOVER = "#ff5470"
-TEXT = "#d7f7ff"
-MUTED = "#7aa5b3"
-LINE = "#1b4f6b"
+BG = "#020713"
+PANEL = "#030a15"
+PANEL_2 = "#061323"
+CYAN = "#77d7e8"
+BLUE = "#2b668f"
+PURPLE = "#7967b8"
+GREEN = "#43d7b3"
+GREEN_HOVER = "#2da984"
+RED = "#d24b63"
+RED_HOVER = "#a93b51"
+TEXT = "#e2f5ff"
+MUTED = "#8faec3"
+LINE = "#0d2b3f"
+PLACEHOLDER = "#6f8ca1"
+HUD_SCALE_OPTIONS = ["1.15", "1.30", "1.45"]
+RADIUS = 6
 CATEGORY_STYLES = [
     (PANEL_2, CYAN),
     (PANEL_2, BLUE),
@@ -77,9 +80,9 @@ class JarvisGUI(ctk.CTk):
 
         super().__init__()
 
-        self.title("Jarvis")
-        self.geometry("1200x750")
-        self.minsize(980, 620)
+        self.title("Jarvis Desktop")
+        self.geometry("1440x820")
+        self.minsize(1080, 680)
         self.configure(fg_color=BG)
 
         self.assistant_name = "Jarvis"
@@ -95,7 +98,9 @@ class JarvisGUI(ctk.CTk):
         self.visual_mode = "core"
         self.visual_transition_progress = 0.0
         self.wave_return_start_progress = 1.0
+        self.core_state = "READY"
         self.system_labels = {}
+        self.status_dots = {}
         self.app_action_buttons = {}
         self.lm_server_label = None
         self.lm_model_label = None
@@ -110,12 +115,24 @@ class JarvisGUI(ctk.CTk):
         self.note_preview_window = None
         self.pending_note_content = None
         self.control_mode = "pc"
+        self.active_view = "chat"
+        self.view_frames = {}
+        self.text_scale = 1.0
+        self.hud_scale = 1.0
+        self.show_system_status = True
+        self.entry_placeholder = "Wiadomość lub komenda..."
+        self.entry_placeholder_active = False
 
         self.bind("<F11>", self.toggle_fullscreen)
         self.bind("<Escape>", self.exit_fullscreen)
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
+
+        self.bg_canvas = tk.Canvas(self, bg=BG, highlightthickness=0, bd=0)
+        self.bg_canvas.place(x=0, y=0, relwidth=1, relheight=1)
+        self.tk.call("lower", self.bg_canvas._w)
+        self.bg_canvas.bind("<Configure>", self.draw_root_grid)
 
         self.build_header()
         self.build_dashboard()
@@ -126,128 +143,113 @@ class JarvisGUI(ctk.CTk):
 
     def build_header(self):
         header = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-        header.grid(row=0, column=0, padx=22, pady=(16, 8), sticky="ew")
+        header.grid(row=0, column=0, padx=10, pady=(8, 8), sticky="ew")
         header.grid_columnconfigure(0, weight=1)
         header.grid_columnconfigure(1, weight=0)
         header.grid_columnconfigure(2, weight=0)
 
         self.title_label = ctk.CTkLabel(
             header,
-            text="JARVIS",
-            text_color=CYAN,
-            font=ctk.CTkFont(family="Segoe UI", size=46, weight="bold"),
+            text="JARVIS DESKTOP",
+            text_color=TEXT,
+            anchor="w",
+            font=ctk.CTkFont(family="Consolas", size=11, weight="bold"),
         )
-        self.title_label.grid(row=0, column=0, sticky="ew")
+        self.title_label.grid(row=0, column=0, sticky="w")
+
+        tabs = ctk.CTkFrame(header, fg_color="transparent")
+        tabs.grid(row=1, column=0, pady=(8, 0), sticky="w")
+
+        self.chat_tab_button = self.create_tab_button(tabs, "CHAT", lambda: self.show_view("chat"))
+        self.chat_tab_button.configure(fg_color="#061827", text_color=CYAN, state="disabled")
+        self.chat_tab_button.grid(row=0, column=0, padx=(0, 8), sticky="w")
+
+        self.apps_toggle_button = self.create_tab_button(tabs, "APLIKACJE", lambda: self.show_view("apps"))
+        self.apps_toggle_button.grid(row=0, column=1, padx=(0, 8), sticky="w")
+
+        self.notes_toggle_button = self.create_tab_button(tabs, "NOTATKI", lambda: self.show_view("notes"))
+        self.notes_toggle_button.grid(row=0, column=2, padx=(0, 8), sticky="w")
+
+        self.settings_button = self.create_tab_button(tabs, "USTAWIENIA", lambda: self.show_view("settings"))
+        self.settings_button.grid(row=0, column=3, sticky="w")
 
         self.status_label = ctk.CTkLabel(
             header,
-            text="Gotowy",
-            text_color=MUTED,
-            font=ctk.CTkFont(size=14, weight="bold"),
+            text="READY",
+            text_color=GREEN,
+            anchor="e",
+            font=ctk.CTkFont(family="Consolas", size=10, weight="bold"),
         )
-        self.status_label.grid(row=1, column=0, columnspan=3, sticky="ew")
-
-        self.control_mode_selector = ctk.CTkSegmentedButton(
-            header,
-            values=["Steruj PC", "Steruj telefonem"],
-            command=self.set_control_mode,
-            height=30,
-            selected_color=CYAN,
-            selected_hover_color=BLUE,
-            unselected_color=PANEL_2,
-            unselected_hover_color=PANEL,
-            text_color=TEXT,
-            font=ctk.CTkFont(size=12, weight="bold"),
-            corner_radius=6,
-        )
-        self.control_mode_selector.set("Steruj PC")
-        self.control_mode_selector.grid(row=0, column=1, padx=(12, 0), pady=(4, 0), sticky="e")
 
         self.close_button = ctk.CTkButton(
             header,
             text="X",
             command=self.close_window,
-            width=34,
-            height=28,
-            fg_color="#0b1220",
-            hover_color="#2f7dff",
-            text_color="#ff3b5c",
+            width=28,
+            height=22,
+            fg_color="#030b16",
+            hover_color="#102c40",
+            text_color=RED,
             border_width=1,
-            border_color=CYAN,
-            corner_radius=6,
-            font=ctk.CTkFont(size=13, weight="bold"),
+            border_color=LINE,
+            corner_radius=RADIUS,
+            font=ctk.CTkFont(size=10, weight="bold"),
         )
-        self.close_button.grid(row=0, column=2, padx=(10, 0), pady=(4, 0), sticky="ne")
-
-        ctk.CTkFrame(header, fg_color=CYAN, height=1, corner_radius=0).grid(
-            row=2,
-            column=0,
-            columnspan=3,
-            padx=130,
-            pady=(8, 0),
-            sticky="ew",
-        )
+        self.close_button.grid(row=0, column=2, padx=(10, 0), sticky="ne")
 
     def build_dashboard(self):
-        dashboard = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-        dashboard.grid(row=1, column=0, padx=22, pady=(0, 12), sticky="nsew")
-        dashboard.grid_columnconfigure(0, weight=0, minsize=195)
-        dashboard.grid_columnconfigure(1, weight=0, minsize=1)
-        dashboard.grid_columnconfigure(2, weight=1)
-        dashboard.grid_columnconfigure(3, weight=0, minsize=1)
-        dashboard.grid_columnconfigure(4, weight=0, minsize=230)
-        dashboard.grid_rowconfigure(0, weight=1)
+        self.dashboard = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+        self.dashboard.grid(row=1, column=0, padx=8, pady=(0, 8), sticky="nsew")
+        self.dashboard.grid_columnconfigure(0, weight=0, minsize=220)
+        self.dashboard.grid_columnconfigure(1, weight=1)
+        self.dashboard.grid_columnconfigure(2, weight=0, minsize=300)
+        self.dashboard.grid_rowconfigure(0, weight=1)
 
-        self.left_panel = self.create_panel(dashboard)
-        self.left_panel.grid(row=0, column=0, padx=(0, 10), sticky="nsew")
-        self.build_app_launcher(self.left_panel)
+        self.left_panel = self.create_panel(self.dashboard)
+        self.left_panel.grid(row=0, column=0, padx=(0, 12), sticky="nsew")
+        self.build_system_status(self.left_panel)
 
-        ctk.CTkFrame(dashboard, fg_color=CYAN, width=1, corner_radius=0).grid(
-            row=0,
-            column=1,
-            sticky="ns",
-        )
-
-        self.center_panel = self.create_panel(dashboard)
-        self.center_panel.grid(row=0, column=2, padx=10, sticky="nsew")
+        self.center_panel = ctk.CTkFrame(self.dashboard, fg_color=BG, corner_radius=0)
+        self.center_panel.grid(row=0, column=1, padx=0, sticky="nsew")
         self.center_panel.grid_columnconfigure(0, weight=1)
-        self.center_panel.grid_rowconfigure(1, weight=1)
+        self.center_panel.grid_rowconfigure(0, weight=1)
         self.build_center(self.center_panel)
 
-        ctk.CTkFrame(dashboard, fg_color=CYAN, width=1, corner_radius=0).grid(
-            row=0,
-            column=3,
-            sticky="ns",
-        )
+        self.right_panel = self.create_panel(self.dashboard)
+        self.right_panel.grid(row=0, column=2, padx=(12, 0), sticky="nsew")
+        self.build_console_panel(self.right_panel)
 
-        self.right_panel = self.create_panel(dashboard)
-        self.right_panel.grid(row=0, column=4, padx=(10, 0), sticky="nsew")
-        self.build_system_status(self.right_panel)
-        self.build_apps_panel(dashboard)
-
-    def build_input_bar(self):
+    def build_input_bar_legacy(self):
         self.input_frame = ctk.CTkFrame(
             self,
-            fg_color=PANEL,
+            fg_color="#030a14",
             border_width=1,
-            border_color=BLUE,
-            corner_radius=8,
+            border_color=LINE,
+            corner_radius=RADIUS,
         )
-        self.input_frame.grid(row=2, column=0, padx=18, pady=(0, 16), sticky="ew")
+        self.input_frame.grid(row=2, column=0, padx=112, pady=(0, 12), sticky="ew")
         self.input_frame.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            self.input_frame,
+            text="COMMAND INPUT",
+            text_color=MUTED,
+            anchor="w",
+            font=ctk.CTkFont(family="Consolas", size=9, weight="bold"),
+        ).grid(row=0, column=0, columnspan=4, padx=10, pady=(5, 0), sticky="ew")
 
         self.entry = ctk.CTkTextbox(
             self.input_frame,
-            height=86,
+            height=34,
             wrap="word",
-            font=ctk.CTkFont(size=14),
+            font=ctk.CTkFont(family="Consolas", size=11),
             text_color=TEXT,
-            fg_color="#05070d",
+            fg_color="#020713",
             border_width=1,
-            border_color="#1b4f6b",
-            corner_radius=8,
+            border_color=LINE,
+            corner_radius=RADIUS,
         )
-        self.entry.grid(row=0, column=0, rowspan=2, padx=(10, 8), pady=10, sticky="ew")
+        self.entry.grid(row=1, column=0, padx=(10, 8), pady=(4, 8), sticky="ew")
         self.entry.bind("<Return>", self.on_entry_return)
         self.entry.bind("<Shift-Return>", self.on_entry_shift_return)
 
@@ -258,10 +260,12 @@ class JarvisGUI(ctk.CTk):
             fg_color=PANEL_2,
             hover_color=BLUE,
         )
-        self.send_button.grid(row=0, column=1, padx=(0, 8), pady=(10, 6), sticky="ew")
+        self.send_button.configure(text="WYŚLIJ")
+        self.send_button.grid(row=1, column=1, padx=(0, 7), pady=(4, 8), sticky="ew")
 
         self.listen_button = self.create_action_button(self.input_frame, "Listen", None)
-        self.listen_button.grid(row=0, column=2, padx=(0, 10), pady=(10, 6), sticky="ew")
+        self.listen_button.configure(text="LISTEN")
+        self.listen_button.grid(row=1, column=2, padx=(0, 7), pady=(4, 8), sticky="ew")
         self.listen_button.bind("<ButtonPress-1>", self.on_listen_press)
         self.listen_button.bind("<ButtonRelease-1>", self.on_listen_release)
 
@@ -269,18 +273,79 @@ class JarvisGUI(ctk.CTk):
             self.input_frame,
             "Wyczyść",
             self.clear_history,
-            fg_color="#0f1b2d",
-            hover_color="#2f7dff",
+            fg_color="transparent",
+            hover_color="#102c40",
         )
-        self.clear_button.grid(row=1, column=1, columnspan=2, padx=(0, 10), pady=(0, 10), sticky="ew")
+        self.clear_button.configure(text="CLEAR")
+        self.clear_button.grid(row=1, column=3, padx=(0, 10), pady=(4, 8), sticky="ew")
+
+    def build_input_bar(self):
+        self.input_frame = ctk.CTkFrame(
+            self,
+            fg_color="#030a14",
+            border_width=1,
+            border_color=LINE,
+            corner_radius=RADIUS,
+        )
+        self.input_frame.grid(row=2, column=0, padx=112, pady=(0, 12), sticky="ew")
+        self.input_frame.grid_columnconfigure(0, weight=0)
+        self.input_frame.grid_columnconfigure(1, weight=1)
+        self.input_frame.grid_columnconfigure(2, weight=0)
+
+        self.listen_button = ctk.CTkButton(
+            self.input_frame,
+            text="🎙",
+            command=None,
+            width=42,
+            height=42,
+            fg_color="#030b16",
+            hover_color="#15102b",
+            text_color="#c8b8ff",
+            border_width=1,
+            border_color=PURPLE,
+            corner_radius=RADIUS,
+            font=ctk.CTkFont(family="Segoe UI", size=17, weight="bold"),
+        )
+        self.listen_button.grid(row=0, column=0, padx=(10, 8), pady=8, sticky="w")
+        self.listen_button.bind("<ButtonPress-1>", self.on_listen_press)
+        self.listen_button.bind("<ButtonRelease-1>", self.on_listen_release)
+
+        self.entry = ctk.CTkTextbox(
+            self.input_frame,
+            height=42,
+            wrap="word",
+            font=ctk.CTkFont(family="Consolas", size=12),
+            text_color=TEXT,
+            fg_color="#020713",
+            border_width=1,
+            border_color=LINE,
+            corner_radius=RADIUS,
+        )
+        self.entry.grid(row=0, column=1, padx=(0, 8), pady=8, sticky="ew")
+        self.entry.bind("<Return>", self.on_entry_return)
+        self.entry.bind("<Shift-Return>", self.on_entry_shift_return)
+        self.entry.bind("<FocusIn>", self.on_entry_focus_in)
+        self.entry.bind("<FocusOut>", self.on_entry_focus_out)
+        self.entry.bind("<KeyPress>", self.on_entry_key_press)
+        self.show_entry_placeholder()
+
+        self.send_button = self.create_action_button(
+            self.input_frame,
+            "➤ WYŚLIJ",
+            self.send_text,
+            fg_color=PANEL_2,
+            hover_color=BLUE,
+        )
+        self.send_button.configure(width=96, height=42, border_color=CYAN, corner_radius=RADIUS)
+        self.send_button.grid(row=0, column=2, padx=(0, 10), pady=8, sticky="e")
 
     def create_panel(self, parent):
         return ctk.CTkFrame(
             parent,
             fg_color=PANEL,
             border_width=1,
-            border_color="#1b4f6b",
-            corner_radius=8,
+            border_color=LINE,
+            corner_radius=RADIUS,
         )
 
     def create_action_button(self, parent, text, command, fg_color=PANEL, hover_color=BLUE):
@@ -288,16 +353,137 @@ class JarvisGUI(ctk.CTk):
             parent,
             text=text,
             command=command,
-            width=112,
-            height=36,
+            width=86,
+            height=24,
             fg_color=fg_color,
             hover_color=hover_color,
             text_color=TEXT,
             border_width=1,
             border_color=CYAN,
-            corner_radius=6,
-            font=ctk.CTkFont(size=13, weight="bold"),
+            corner_radius=RADIUS,
+            font=ctk.CTkFont(family="Consolas", size=10, weight="bold"),
         )
+
+    def create_tab_button(self, parent, text, command):
+        return ctk.CTkButton(
+            parent,
+            text=text,
+            command=command,
+            width=78 if len(text) <= 5 else 104,
+            height=20,
+            fg_color="#030b16",
+            hover_color="#0b283a",
+            text_color=MUTED,
+            border_width=1,
+            border_color=LINE,
+            corner_radius=RADIUS,
+            font=ctk.CTkFont(family="Consolas", size=9, weight="bold"),
+        )
+
+    def ui_font(self, size, family="Consolas", weight=None):
+        scaled_size = max(7, int(round(size * self.text_scale)))
+        if weight:
+            return ctk.CTkFont(family=family, size=scaled_size, weight=weight)
+        return ctk.CTkFont(family=family, size=scaled_size)
+
+    def apply_text_scale(self):
+        if hasattr(self, "title_label"):
+            self.title_label.configure(font=self.ui_font(11, weight="bold"), text_color=TEXT)
+        for button in [
+            getattr(self, "chat_tab_button", None),
+            getattr(self, "apps_toggle_button", None),
+            getattr(self, "notes_toggle_button", None),
+            getattr(self, "settings_button", None),
+        ]:
+            if button:
+                button.configure(font=self.ui_font(9, weight="bold"))
+        for button in [
+            getattr(self, "send_button", None),
+            getattr(self, "listen_button", None),
+        ]:
+            if button:
+                base_size = 17 if button == getattr(self, "listen_button", None) else 10
+                family = "Segoe UI" if button == getattr(self, "listen_button", None) else "Consolas"
+                button.configure(font=self.ui_font(base_size, family=family, weight="bold"), text_color=button.cget("text_color"))
+        if hasattr(self, "entry"):
+            self.entry.configure(font=self.ui_font(12), text_color=PLACEHOLDER if self.entry_placeholder_active else TEXT)
+        if hasattr(self, "history"):
+            self.history.configure(font=self.ui_font(11), text_color=TEXT)
+        if hasattr(self, "core_state_label"):
+            self.core_state_label.configure(font=self.ui_font(12, weight="bold"))
+        for root in [
+            getattr(self, "left_panel", None),
+            getattr(self, "right_panel", None),
+            getattr(self, "settings_panel", None),
+            getattr(self, "notes_panel", None),
+            getattr(self, "apps_panel", None),
+        ]:
+            if root:
+                self.apply_text_scale_recursive(root)
+
+    def apply_text_scale_recursive(self, widget):
+        for child in widget.winfo_children():
+            class_name = child.__class__.__name__
+            try:
+                if class_name == "CTkLabel":
+                    child.configure(font=self.ui_font(9 if child.winfo_height() < 24 else 10, weight="bold"))
+                elif class_name == "CTkButton":
+                    child.configure(font=self.ui_font(9 if child.winfo_height() <= 24 else 10, weight="bold"))
+                elif class_name in {"CTkEntry", "CTkTextbox"}:
+                    child.configure(font=self.ui_font(11), text_color=TEXT)
+                elif class_name in {"CTkCheckBox", "CTkSegmentedButton"}:
+                    child.configure(font=self.ui_font(10, weight="bold"), text_color=TEXT)
+            except Exception:
+                pass
+            self.apply_text_scale_recursive(child)
+
+    def show_view(self, view_name):
+        if not self.view_frames:
+            return
+
+        for frame in self.view_frames.values():
+            frame.grid_remove()
+
+        selected = self.view_frames.get(view_name) or self.view_frames.get("chat")
+        if selected:
+            selected.grid()
+            selected.tkraise()
+
+        self.active_view = view_name if view_name in self.view_frames else "chat"
+        self.apps_panel_visible = self.active_view == "apps"
+        self.update_tab_styles()
+
+        if self.active_view == "apps":
+            self.refresh_apps_list()
+        elif self.active_view == "notes":
+            self.refresh_notes_list()
+        elif self.active_view == "settings":
+            self.refresh_settings_view()
+
+    def update_tab_styles(self):
+        tab_map = {
+            "chat": self.chat_tab_button,
+            "apps": self.apps_toggle_button,
+            "notes": self.notes_toggle_button,
+            "settings": self.settings_button,
+        }
+        for name, button in tab_map.items():
+            if not button:
+                continue
+            if name == self.active_view:
+                button.configure(fg_color="#061827", text_color=CYAN, border_color=CYAN, state="normal", corner_radius=RADIUS)
+            else:
+                button.configure(fg_color="#030b16", text_color=MUTED, border_color=LINE, state="normal", corner_radius=RADIUS)
+
+    def apply_system_status_visibility(self):
+        if not hasattr(self, "left_panel"):
+            return
+        if self.show_system_status:
+            self.dashboard.grid_columnconfigure(0, weight=0, minsize=220)
+            self.left_panel.grid(row=0, column=0, padx=(0, 12), sticky="nsew")
+        else:
+            self.left_panel.grid_remove()
+            self.dashboard.grid_columnconfigure(0, weight=0, minsize=0)
 
     def build_app_launcher(self, parent):
         parent.grid_columnconfigure(0, weight=1)
@@ -338,9 +524,194 @@ class JarvisGUI(ctk.CTk):
         ).grid(row=10, column=0, padx=14, pady=(18, 0), sticky="s")
 
     def toggle_notes_panel(self):
-        self.open_notes_window()
+        self.show_view("notes")
+
+    def build_notes_panel(self, parent):
+        self.notes_panel = ctk.CTkFrame(
+            parent,
+            fg_color="transparent",
+            border_width=1,
+            border_color=LINE,
+            corner_radius=RADIUS,
+        )
+        self.notes_panel.grid(row=0, column=0, padx=14, pady=14, sticky="nsew")
+        self.notes_panel.grid_columnconfigure(0, weight=0, minsize=280)
+        self.notes_panel.grid_columnconfigure(1, weight=1)
+        self.notes_panel.grid_rowconfigure(1, weight=1)
+        self.view_frames["notes"] = self.notes_panel
+
+        ctk.CTkLabel(
+            self.notes_panel,
+            text="NOTATKI",
+            text_color=CYAN,
+            anchor="w",
+            font=ctk.CTkFont(family="Consolas", size=11, weight="bold"),
+        ).grid(row=0, column=0, padx=12, pady=(12, 8), sticky="ew")
+
+        button_row = ctk.CTkFrame(self.notes_panel, fg_color="transparent")
+        button_row.grid(row=0, column=1, padx=12, pady=(12, 8), sticky="e")
+        new_button = self.create_action_button(
+            button_row,
+            "NOWA",
+            self.open_new_note_window,
+            fg_color="#030b16",
+            hover_color="#102c40",
+        )
+        new_button.grid(row=0, column=0, padx=(0, 8), sticky="e")
+        refresh_button = self.create_action_button(
+            button_row,
+            "ODŚWIEŻ",
+            self.refresh_notes_list,
+            fg_color="#030b16",
+            hover_color="#102c40",
+        )
+        refresh_button.grid(row=0, column=1, sticky="e")
+
+        self.notes_list_frame = ctk.CTkScrollableFrame(
+            self.notes_panel,
+            fg_color="#020713",
+            border_width=1,
+            border_color=LINE,
+            corner_radius=RADIUS,
+            scrollbar_button_color=BLUE,
+            scrollbar_button_hover_color=CYAN,
+        )
+        self.notes_list_frame.grid(row=1, column=0, padx=(12, 6), pady=(0, 12), sticky="nsew")
+        self.notes_list_frame.grid_columnconfigure(0, weight=1)
+
+        self.notes_detail_frame = ctk.CTkFrame(
+            self.notes_panel,
+            fg_color="#020713",
+            border_width=1,
+            border_color=LINE,
+            corner_radius=RADIUS,
+        )
+        self.notes_detail_frame.grid(row=1, column=1, padx=(6, 12), pady=(0, 12), sticky="nsew")
+        self.notes_detail_frame.grid_columnconfigure(0, weight=1)
+        self.notes_detail_frame.grid_rowconfigure(1, weight=1)
+        self.show_note_placeholder()
+        self.notes_panel.grid_remove()
+
+    def clear_notes_detail(self):
+        if not hasattr(self, "notes_detail_frame"):
+            return
+        for widget in self.notes_detail_frame.winfo_children():
+            widget.destroy()
+
+    def show_note_placeholder(self):
+        self.clear_notes_detail()
+        ctk.CTkLabel(
+            self.notes_detail_frame,
+            text="WYBIERZ NOTATKĘ",
+            text_color=MUTED,
+            font=ctk.CTkFont(family="Consolas", size=10, weight="bold"),
+        ).grid(row=0, column=0, padx=14, pady=14, sticky="ew")
+
+    def show_note_detail(self, note):
+        self.clear_notes_detail()
+        title = str(note.get("title") or "Bez tytułu")
+        content = str(note.get("content") or "")
+        created_at = self.format_note_timestamp(note.get("created_at", ""))
+        note_path = note.get("path", "")
+
+        ctk.CTkLabel(
+            self.notes_detail_frame,
+            text=title,
+            text_color=CYAN,
+            anchor="w",
+            wraplength=520,
+            font=ctk.CTkFont(family="Consolas", size=12, weight="bold"),
+        ).grid(row=0, column=0, padx=14, pady=(14, 8), sticky="ew")
+
+        content_box = ctk.CTkTextbox(
+            self.notes_detail_frame,
+            wrap="word",
+            font=ctk.CTkFont(family="Consolas", size=11),
+            text_color=TEXT,
+            fg_color="#020713",
+            border_width=1,
+            border_color=LINE,
+            corner_radius=RADIUS,
+        )
+        content_box.grid(row=1, column=0, padx=14, pady=(0, 8), sticky="nsew")
+        content_box.insert("1.0", content or "Brak treści")
+        content_box.configure(state="disabled")
+
+        ctk.CTkLabel(
+            self.notes_detail_frame,
+            text=created_at,
+            text_color=MUTED,
+            anchor="w",
+            font=ctk.CTkFont(family="Consolas", size=9),
+        ).grid(row=2, column=0, padx=14, pady=(0, 8), sticky="ew")
+
+        delete_button = self.create_action_button(
+            self.notes_detail_frame,
+            "USUŃ",
+            lambda path=note_path: self.delete_note_from_gui(path),
+            fg_color="#030b16",
+            hover_color="#102c40",
+        )
+        delete_button.configure(text_color=RED)
+        delete_button.grid(row=3, column=0, padx=14, pady=(0, 14), sticky="e")
+
+    def show_new_note_form(self):
+        self.clear_notes_detail()
+        self.notes_detail_frame.grid_rowconfigure(2, weight=1)
+
+        ctk.CTkLabel(
+            self.notes_detail_frame,
+            text="NOWA NOTATKA",
+            text_color=CYAN,
+            anchor="w",
+            font=ctk.CTkFont(family="Consolas", size=12, weight="bold"),
+        ).grid(row=0, column=0, padx=14, pady=(14, 8), sticky="ew")
+
+        title_entry = ctk.CTkEntry(
+            self.notes_detail_frame,
+            placeholder_text="Tytuł",
+            fg_color="#020713",
+            text_color=TEXT,
+            border_color=LINE,
+            border_width=1,
+            corner_radius=RADIUS,
+        )
+        title_entry.grid(row=1, column=0, padx=14, pady=(0, 8), sticky="ew")
+
+        content_box = ctk.CTkTextbox(
+            self.notes_detail_frame,
+            wrap="word",
+            font=ctk.CTkFont(family="Consolas", size=11),
+            text_color=TEXT,
+            fg_color="#020713",
+            border_width=1,
+            border_color=LINE,
+            corner_radius=RADIUS,
+        )
+        content_box.grid(row=2, column=0, padx=14, pady=(0, 8), sticky="nsew")
+
+        message_label = ctk.CTkLabel(
+            self.notes_detail_frame,
+            text="",
+            text_color=GREEN_HOVER,
+            font=ctk.CTkFont(family="Consolas", size=9, weight="bold"),
+        )
+        message_label.grid(row=3, column=0, padx=14, pady=(0, 8), sticky="ew")
+
+        save_button = self.create_action_button(
+            self.notes_detail_frame,
+            "ZAPISZ",
+            lambda: self.save_note_from_window(title_entry, content_box, message_label),
+            fg_color="#030b16",
+            hover_color="#102c40",
+        )
+        save_button.configure(text_color=GREEN)
+        save_button.grid(row=4, column=0, padx=14, pady=(0, 14), sticky="e")
+        title_entry.focus_set()
 
     def open_notes_window(self):
+        self.show_view("notes")
+        return
         if self.notes_window and self.notes_window.winfo_exists():
             self.notes_window.focus()
             self.refresh_notes_list()
@@ -420,7 +791,7 @@ class JarvisGUI(ctk.CTk):
             text="Zamknij",
             command=close_window,
             height=32,
-            fg_color="#0f1b2d",
+            fg_color="transparent",
             hover_color="#2f7dff",
             text_color=TEXT,
             border_width=1,
@@ -540,6 +911,10 @@ class JarvisGUI(ctk.CTk):
             return str(value)[:16]
 
     def open_note_preview(self, note):
+        if hasattr(self, "notes_detail_frame") and self.notes_detail_frame.winfo_exists():
+            self.show_note_detail(note)
+            return
+
         if self.note_preview_window and self.note_preview_window.winfo_exists():
             self.note_preview_window.destroy()
 
@@ -617,9 +992,9 @@ class JarvisGUI(ctk.CTk):
             hover_color=BLUE,
             text_color=RED,
             border_width=1,
-            border_color=CYAN,
-            corner_radius=6,
-            font=ctk.CTkFont(size=13, weight="bold"),
+            border_color=LINE,
+            corner_radius=RADIUS,
+            font=ctk.CTkFont(size=11, weight="bold"),
         )
         delete_button.grid(row=0, column=0, padx=(0, 6), sticky="ew")
 
@@ -633,8 +1008,8 @@ class JarvisGUI(ctk.CTk):
             text_color=TEXT,
             border_width=1,
             border_color=CYAN,
-            corner_radius=6,
-            font=ctk.CTkFont(size=13, weight="bold"),
+            corner_radius=RADIUS,
+            font=ctk.CTkFont(size=11, weight="bold"),
         )
         close_button.grid(row=0, column=1, padx=(6, 0), sticky="ew")
 
@@ -648,6 +1023,8 @@ class JarvisGUI(ctk.CTk):
                 if window_to_close == self.note_preview_window:
                     self.note_preview_window = None
             self.refresh_notes_list()
+            if hasattr(self, "notes_detail_frame") and self.notes_detail_frame.winfo_exists():
+                self.show_note_placeholder()
             self.set_status("Gotowy")
             return
 
@@ -655,6 +1032,10 @@ class JarvisGUI(ctk.CTk):
         self.after(1500, lambda: self.set_status("Gotowy"))
 
     def open_new_note_window(self):
+        if hasattr(self, "notes_detail_frame") and self.notes_detail_frame.winfo_exists():
+            self.show_new_note_form()
+            return
+
         if self.note_window and self.note_window.winfo_exists():
             self.note_window.focus()
             return
@@ -748,9 +1129,9 @@ class JarvisGUI(ctk.CTk):
             hover_color=BLUE,
             text_color=GREEN,
             border_width=1,
-            border_color=CYAN,
-            corner_radius=6,
-            font=ctk.CTkFont(size=13, weight="bold"),
+            border_color=LINE,
+            corner_radius=0,
+            font=ctk.CTkFont(size=11, weight="bold"),
         )
         save_button.grid(row=6, column=0, padx=14, pady=(0, 14), sticky="ew")
         title_entry.focus_set()
@@ -782,6 +1163,8 @@ class JarvisGUI(ctk.CTk):
         self.set_status("Gotowy")
 
     def open_settings_window(self):
+        self.show_view("settings")
+        return
         if self.settings_window and self.settings_window.winfo_exists():
             self.settings_window.focus()
             return
@@ -884,10 +1267,182 @@ class JarvisGUI(ctk.CTk):
             text_color=TEXT,
             border_width=1,
             border_color=CYAN,
-            corner_radius=6,
-            font=ctk.CTkFont(size=13, weight="bold"),
+            corner_radius=0,
+            font=ctk.CTkFont(size=11, weight="bold"),
         )
         close_button.grid(row=row + 1, column=1, padx=(6, 14), pady=(8, 14), sticky="ew")
+
+    def build_settings_panel(self, parent):
+        self.settings_panel = ctk.CTkFrame(
+            parent,
+            fg_color="transparent",
+            border_width=1,
+            border_color=LINE,
+            corner_radius=RADIUS,
+        )
+        self.settings_panel.grid(row=0, column=0, padx=14, pady=14, sticky="nsew")
+        self.settings_panel.grid_columnconfigure(0, weight=1)
+        self.settings_panel.grid_rowconfigure(1, weight=1)
+        self.view_frames["settings"] = self.settings_panel
+
+        ctk.CTkLabel(
+            self.settings_panel,
+            text="USTAWIENIA",
+            text_color=CYAN,
+            anchor="w",
+            font=ctk.CTkFont(family="Consolas", size=11, weight="bold"),
+        ).grid(row=0, column=0, padx=12, pady=(12, 8), sticky="ew")
+
+        self.settings_content = ctk.CTkScrollableFrame(
+            self.settings_panel,
+            fg_color="#020713",
+            border_width=1,
+            border_color=LINE,
+            corner_radius=RADIUS,
+            scrollbar_button_color=BLUE,
+            scrollbar_button_hover_color=CYAN,
+        )
+        self.settings_content.grid(row=1, column=0, padx=12, pady=(0, 12), sticky="nsew")
+        self.settings_content.grid_columnconfigure(1, weight=1)
+        self.settings_message_label = None
+        self.settings_panel.grid_remove()
+
+    def refresh_settings_view(self):
+        if not hasattr(self, "settings_content"):
+            return
+
+        for widget in self.settings_content.winfo_children():
+            widget.destroy()
+
+        config_data, error = self.read_settings_config()
+        values = config_data or {}
+
+        settings_vars = {
+            "voice_enabled": tk.BooleanVar(value=bool(values.get("voice_enabled", True))),
+            "whisper_model": tk.StringVar(value=str(values.get("whisper_model", "base"))),
+            "sample_rate": tk.StringVar(value=str(values.get("sample_rate", 48000))),
+            "temperature": tk.StringVar(value=str(values.get("temperature", 0.3))),
+            "edge_voice": tk.StringVar(value=str(values.get("edge_voice", "pl-PL-MarekNeural"))),
+            "edge_rate": tk.StringVar(value=str(values.get("edge_rate", "+0%"))),
+            "animation_speed": tk.StringVar(value=str(values.get("animation_speed", 1.6))),
+            "backend_url": tk.StringVar(value=str(values.get("backend_url", "http://127.0.0.1:8000"))),
+            "api_token": tk.StringVar(value=str(values.get("api_token", ""))),
+            "text_scale": tk.StringVar(value=str(values.get("text_scale", self.text_scale))),
+            "hud_scale": tk.StringVar(value=self.normalize_hud_scale(values.get("hud_scale", self.hud_scale))),
+            "show_system_status": tk.BooleanVar(value=bool(values.get("show_system_status", self.show_system_status))),
+        }
+        self.settings_vars = settings_vars
+
+        voice_checkbox = ctk.CTkCheckBox(
+            self.settings_content,
+            text="voice_enabled",
+            variable=settings_vars["voice_enabled"],
+            text_color=TEXT,
+            fg_color=CYAN,
+            hover_color=BLUE,
+            border_color=LINE,
+            font=ctk.CTkFont(family="Consolas", size=10, weight="bold"),
+        )
+        voice_checkbox.grid(row=0, column=0, columnspan=2, padx=14, pady=(14, 8), sticky="w")
+
+        status_checkbox = ctk.CTkCheckBox(
+            self.settings_content,
+            text="Show System Status",
+            variable=settings_vars["show_system_status"],
+            command=lambda: self.preview_system_status_visibility(settings_vars["show_system_status"].get()),
+            text_color=TEXT,
+            fg_color=CYAN,
+            hover_color=BLUE,
+            border_color=LINE,
+            font=ctk.CTkFont(family="Consolas", size=10, weight="bold"),
+        )
+        status_checkbox.grid(row=1, column=0, columnspan=2, padx=14, pady=(0, 10), sticky="w")
+
+        row = 2
+        self.add_settings_segmented(
+            self.settings_content,
+            row,
+            "Text Scale",
+            settings_vars["text_scale"],
+            ["0.85", "1.0", "1.15", "1.3"],
+        )
+        row += 1
+        self.add_settings_segmented(
+            self.settings_content,
+            row,
+            "HUD Scale",
+            settings_vars["hud_scale"],
+            HUD_SCALE_OPTIONS,
+        )
+        row += 1
+
+        for key, label in [
+            ("backend_url", "Backend URL"),
+        ]:
+            self.add_settings_entry(self.settings_content, row, label, settings_vars[key])
+            row += 1
+        self.add_api_token_entry(self.settings_content, row, "API Token", settings_vars["api_token"])
+        row += 1
+
+        for key, label in [
+            ("whisper_model", "whisper_model"),
+            ("sample_rate", "sample_rate"),
+            ("temperature", "temperature"),
+            ("edge_voice", "edge_voice"),
+            ("edge_rate", "edge_rate"),
+            ("animation_speed", "animation_speed"),
+        ]:
+            self.add_settings_entry(self.settings_content, row, label, settings_vars[key])
+            row += 1
+
+        self.settings_message_label = ctk.CTkLabel(
+            self.settings_content,
+            text=f"Błąd config.json: {error}" if error else "",
+            text_color=RED if error else GREEN_HOVER,
+            wraplength=520,
+            font=ctk.CTkFont(family="Consolas", size=10, weight="bold"),
+        )
+        self.settings_message_label.grid(row=row, column=0, columnspan=2, padx=14, pady=(8, 4), sticky="ew")
+
+        save_button = self.create_action_button(
+            self.settings_content,
+            "ZAPISZ",
+            lambda: self.save_settings(config_data, settings_vars, self.settings_message_label),
+            fg_color="#030b16",
+            hover_color="#102c40",
+        )
+        save_button.configure(text_color=GREEN)
+        save_button.grid(row=row + 1, column=1, padx=(6, 14), pady=(8, 14), sticky="e")
+        if config_data is None:
+            save_button.configure(state="disabled")
+
+    def add_settings_segmented(self, parent, row, label, variable, values):
+        ctk.CTkLabel(
+            parent,
+            text=label,
+            text_color=MUTED,
+            anchor="w",
+            font=ctk.CTkFont(family="Consolas", size=10, weight="bold"),
+        ).grid(row=row, column=0, padx=(14, 8), pady=7, sticky="ew")
+
+        selector = ctk.CTkSegmentedButton(
+            parent,
+            values=values,
+            variable=variable,
+            height=26,
+            selected_color="#08283a",
+            selected_hover_color="#0c3348",
+            unselected_color="#030b16",
+            unselected_hover_color="#071827",
+            text_color=TEXT,
+            font=ctk.CTkFont(family="Consolas", size=9, weight="bold"),
+            corner_radius=RADIUS,
+        )
+        selector.grid(row=row, column=1, padx=(0, 14), pady=7, sticky="ew")
+
+    def preview_system_status_visibility(self, visible):
+        self.show_system_status = bool(visible)
+        self.apply_system_status_visibility()
 
     def add_settings_entry(self, parent, row, label, variable):
         ctk.CTkLabel(
@@ -895,19 +1450,75 @@ class JarvisGUI(ctk.CTk):
             text=label,
             text_color=MUTED,
             anchor="w",
-            font=ctk.CTkFont(size=12, weight="bold"),
+            font=ctk.CTkFont(family="Consolas", size=10, weight="bold"),
         ).grid(row=row, column=0, padx=(14, 8), pady=7, sticky="ew")
 
         entry = ctk.CTkEntry(
             parent,
             textvariable=variable,
-            fg_color="#05070d",
+            fg_color="#020713",
             text_color=TEXT,
-            border_color="#1b4f6b",
+            border_color=LINE,
             border_width=1,
-            corner_radius=6,
+            corner_radius=RADIUS,
+            font=ctk.CTkFont(family="Consolas", size=11),
         )
         entry.grid(row=row, column=1, padx=(0, 14), pady=7, sticky="ew")
+
+    def add_api_token_entry(self, parent, row, label, variable):
+        ctk.CTkLabel(
+            parent,
+            text=label,
+            text_color=MUTED,
+            anchor="w",
+            font=ctk.CTkFont(family="Consolas", size=10, weight="bold"),
+        ).grid(row=row, column=0, padx=(14, 8), pady=7, sticky="ew")
+
+        token_frame = ctk.CTkFrame(parent, fg_color="transparent", corner_radius=0)
+        token_frame.grid(row=row, column=1, padx=(0, 14), pady=7, sticky="ew")
+        token_frame.grid_columnconfigure(0, weight=1)
+
+        self.api_token_visible = False
+        self.api_token_entry = ctk.CTkEntry(
+            token_frame,
+            textvariable=variable,
+            show="•",
+            fg_color="#020713",
+            text_color=TEXT,
+            border_color=LINE,
+            border_width=1,
+            corner_radius=RADIUS,
+            font=ctk.CTkFont(family="Consolas", size=11),
+        )
+        self.api_token_entry.grid(row=0, column=0, padx=(0, 8), sticky="ew")
+
+        self.api_token_toggle_button = ctk.CTkButton(
+            token_frame,
+            text="👁",
+            command=self.toggle_api_token_visibility,
+            width=30,
+            height=28,
+            fg_color="#030b16",
+            hover_color="#15102b",
+            text_color=MUTED,
+            border_width=1,
+            border_color=PURPLE,
+            corner_radius=RADIUS,
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+        )
+        self.api_token_toggle_button.grid(row=0, column=1, sticky="e")
+
+    def toggle_api_token_visibility(self):
+        if not hasattr(self, "api_token_entry"):
+            return
+        self.api_token_visible = not getattr(self, "api_token_visible", False)
+        self.api_token_entry.configure(show="" if self.api_token_visible else "•")
+        if hasattr(self, "api_token_toggle_button"):
+            self.api_token_toggle_button.configure(
+                text="◌" if self.api_token_visible else "👁",
+                text_color=CYAN if self.api_token_visible else MUTED,
+                border_color=CYAN if self.api_token_visible else PURPLE,
+            )
 
     def read_settings_config(self):
         try:
@@ -937,9 +1548,14 @@ class JarvisGUI(ctk.CTk):
             updated_config["temperature"] = float(settings_vars["temperature"].get().strip())
             updated_config["edge_voice"] = settings_vars["edge_voice"].get().strip() or "pl-PL-MarekNeural"
             updated_config["edge_rate"] = settings_vars["edge_rate"].get().strip() or "+0%"
+            updated_config["backend_url"] = settings_vars["backend_url"].get().strip() or "http://127.0.0.1:8000"
+            updated_config["api_token"] = settings_vars["api_token"].get().strip()
             updated_config["animation_speed"] = self.clamp_animation_speed(
                 float(settings_vars["animation_speed"].get().strip())
             )
+            updated_config["text_scale"] = self.clamp_ui_scale(float(settings_vars["text_scale"].get().strip()))
+            updated_config["hud_scale"] = float(self.normalize_hud_scale(settings_vars["hud_scale"].get().strip()))
+            updated_config["show_system_status"] = bool(settings_vars["show_system_status"].get())
         except ValueError as e:
             message_label.configure(text=f"Błąd wartości: {e}", text_color="#ff3b5c")
             self.set_error_status(e)
@@ -951,6 +1567,8 @@ class JarvisGUI(ctk.CTk):
                 config_file.write("\n")
 
             self.config = load_config()
+            self.load_ui_preferences()
+            self.apply_ui_preferences()
             self.update_system_status("Gotowy")
             self.refresh_lm_studio_status()
             message_label.configure(text="Zapisano ustawienia", text_color=GREEN_HOVER)
@@ -960,20 +1578,62 @@ class JarvisGUI(ctk.CTk):
             message_label.configure(text=f"Błąd zapisu: {e}", text_color="#ff3b5c")
             self.set_error_status(e)
 
+    def clamp_ui_scale(self, value):
+        return max(0.75, min(1.45, float(value)))
+
+    def normalize_hud_scale(self, value):
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError):
+            return HUD_SCALE_OPTIONS[0]
+        return min(HUD_SCALE_OPTIONS, key=lambda option: abs(float(option) - numeric_value))
+
+    def load_ui_preferences(self):
+        if not self.config:
+            return
+        self.text_scale = self.clamp_ui_scale(self.config.get("text_scale", 1.0))
+        self.hud_scale = float(self.normalize_hud_scale(self.config.get("hud_scale", 1.15)))
+        self.show_system_status = bool(self.config.get("show_system_status", True))
+
+    def apply_ui_preferences(self):
+        try:
+            ctk.set_window_scaling(1.0)
+            ctk.set_widget_scaling(self.hud_scale)
+        except Exception:
+            pass
+        self.apply_text_scale()
+        self.apply_hud_scale()
+        self.apply_system_status_visibility()
+        if hasattr(self, "core_canvas"):
+            self.draw_core()
+
+    def apply_hud_scale(self):
+        if hasattr(self, "input_frame"):
+            horizontal_pad = max(48, int(112 * self.hud_scale / 1.15))
+            self.input_frame.grid_configure(padx=horizontal_pad)
+        if hasattr(self, "entry"):
+            self.entry.configure(height=max(38, int(42 * self.hud_scale / 1.15)))
+        if hasattr(self, "listen_button"):
+            size = max(38, int(42 * self.hud_scale / 1.15))
+            self.listen_button.configure(width=size, height=size)
+        if hasattr(self, "send_button"):
+            self.send_button.configure(width=max(92, int(104 * self.hud_scale / 1.15)), height=max(38, int(42 * self.hud_scale / 1.15)))
+
     def build_apps_panel(self, parent):
         self.apps_panel = ctk.CTkFrame(
             parent,
-            fg_color=PANEL,
+            fg_color="transparent",
             border_width=1,
-            border_color=CYAN,
-            corner_radius=8,
+            border_color=LINE,
+            corner_radius=RADIUS,
         )
-        self.apps_panel.grid(row=0, column=0, columnspan=5, padx=0, pady=0, sticky="nsew")
+        self.apps_panel.grid(row=0, column=0, padx=14, pady=14, sticky="nsew")
         self.apps_panel.grid_columnconfigure(0, weight=1)
         self.apps_panel.grid_rowconfigure(1, weight=1)
+        self.view_frames["apps"] = self.apps_panel
 
-        header = ctk.CTkFrame(self.apps_panel, fg_color="#0f1b2d", corner_radius=8)
-        header.grid(row=0, column=0, padx=14, pady=(14, 8), sticky="ew")
+        header = ctk.CTkFrame(self.apps_panel, fg_color="transparent", corner_radius=0)
+        header.grid(row=0, column=0, padx=12, pady=(12, 8), sticky="ew")
         header.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(
@@ -981,8 +1641,8 @@ class JarvisGUI(ctk.CTk):
             text="APLIKACJE",
             text_color=CYAN,
             anchor="w",
-            font=ctk.CTkFont(size=16, weight="bold"),
-        ).grid(row=0, column=0, padx=12, pady=10, sticky="ew")
+            font=ctk.CTkFont(family="Consolas", size=11, weight="bold"),
+        ).grid(row=0, column=0, padx=0, pady=0, sticky="ew")
 
         self.apps_close_button = ctk.CTkButton(
             header,
@@ -1013,30 +1673,22 @@ class JarvisGUI(ctk.CTk):
             font=ctk.CTkFont(size=12, weight="bold"),
         )
         self.apps_refresh_button.grid(row=0, column=1, padx=(8, 8), pady=8, sticky="e")
-        self.apps_close_button.grid(row=0, column=2, padx=(0, 12), pady=8, sticky="e")
 
         self.apps_container = ctk.CTkScrollableFrame(
             self.apps_panel,
-            fg_color="#05070d",
+            fg_color="#020713",
             border_width=1,
             border_color=LINE,
-            corner_radius=8,
-            scrollbar_button_color="#2f7dff",
+            corner_radius=RADIUS,
+            scrollbar_button_color=BLUE,
             scrollbar_button_hover_color=CYAN,
         )
-        self.apps_container.grid(row=1, column=0, padx=14, pady=(0, 14), sticky="nsew")
+        self.apps_container.grid(row=1, column=0, padx=12, pady=(0, 12), sticky="nsew")
 
         self.apps_panel.grid_remove()
 
     def toggle_apps_panel(self):
-        self.apps_panel_visible = not self.apps_panel_visible
-
-        if self.apps_panel_visible:
-            self.apps_panel.grid()
-            self.apps_panel.tkraise()
-            self.refresh_apps_list()
-        else:
-            self.apps_panel.grid_remove()
+        self.show_view("apps")
 
     def get_app_categories(self, apps):
         categories = load_app_categories()
@@ -1300,84 +1952,175 @@ class JarvisGUI(ctk.CTk):
                 self.after(2000, lambda: self.set_status(self.phone_mode_message()))
 
     def build_center(self, parent):
-        core_frame = ctk.CTkFrame(parent, fg_color=PANEL_2, corner_radius=8)
-        core_frame.grid(row=0, column=0, padx=14, pady=14, sticky="ew")
+        self.content_frame = ctk.CTkFrame(parent, fg_color="transparent", corner_radius=0)
+        self.content_frame.grid(row=0, column=0, sticky="nsew")
+        self.content_frame.grid_columnconfigure(0, weight=1)
+        self.content_frame.grid_rowconfigure(0, weight=1)
+
+        core_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent", corner_radius=0)
+        core_frame.grid(row=0, column=0, padx=14, pady=14, sticky="nsew")
         core_frame.grid_columnconfigure(0, weight=1)
+        core_frame.grid_rowconfigure(0, weight=1)
+        core_frame.grid_rowconfigure(1, weight=0)
+        self.view_frames["chat"] = core_frame
 
         self.core_canvas = tk.Canvas(
             core_frame,
-            width=420,
-            height=285,
-            bg=PANEL_2,
+            width=520,
+            height=420,
+            bg=BG,
             highlightthickness=0,
             bd=0,
         )
-        self.core_canvas.grid(row=0, column=0, pady=12)
+        self.core_canvas.grid(row=0, column=0, sticky="nsew")
         self.core_canvas.bind("<Configure>", self.draw_core)
         self.draw_core()
+
+        self.core_state_label = ctk.CTkLabel(
+            core_frame,
+            text=self.core_state,
+            text_color=GREEN,
+            font=ctk.CTkFont(family="Consolas", size=12, weight="bold"),
+        )
+        self.build_apps_panel(self.content_frame)
+        self.build_notes_panel(self.content_frame)
+        self.build_settings_panel(self.content_frame)
+        self.show_view("chat")
+
+    def build_console_panel(self, parent):
+        parent.grid_columnconfigure(0, weight=1)
+        parent.grid_rowconfigure(1, weight=1)
+
+        tools = ctk.CTkFrame(parent, fg_color="transparent")
+        tools.grid(row=0, column=0, padx=10, pady=(8, 6), sticky="ew")
+        tools.grid_columnconfigure((0, 1), weight=1)
+
+        self.control_pc_button = ctk.CTkButton(
+            tools,
+            text="Steruj PC",
+            command=lambda: self.set_control_mode("Steruj PC"),
+            height=24,
+            fg_color="#120d22",
+            hover_color="#201438",
+            text_color=TEXT,
+            border_width=1,
+            border_color=PURPLE,
+            corner_radius=RADIUS,
+            font=ctk.CTkFont(family="Consolas", size=9, weight="bold"),
+        )
+        self.control_pc_button.grid(row=0, column=0, padx=(0, 5), sticky="ew")
+
+        self.control_phone_button = ctk.CTkButton(
+            tools,
+            text="Steruj telefonem",
+            command=lambda: self.set_control_mode("Steruj telefonem"),
+            height=24,
+            fg_color="#030b16",
+            hover_color="#201438",
+            text_color=MUTED,
+            border_width=1,
+            border_color=PURPLE,
+            corner_radius=RADIUS,
+            font=ctk.CTkFont(family="Consolas", size=9, weight="bold"),
+        )
+        self.control_phone_button.grid(row=0, column=1, padx=(5, 0), sticky="ew")
+
+        log_header = ctk.CTkFrame(parent, fg_color="transparent", corner_radius=0)
+        log_header.grid(row=1, column=0, padx=10, pady=(0, 6), sticky="new")
+        log_header.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            log_header,
+            text="CONSOLE LOG",
+            text_color=CYAN,
+            anchor="w",
+            font=ctk.CTkFont(family="Consolas", size=9, weight="bold"),
+        ).grid(row=0, column=0, sticky="w")
+
+        self.log_clear_button = ctk.CTkButton(
+            log_header,
+            text="Clear",
+            command=self.clear_history,
+            width=56,
+            height=20,
+            fg_color="#030b16",
+            hover_color="#102c40",
+            text_color=MUTED,
+            border_width=1,
+            border_color=LINE,
+            corner_radius=RADIUS,
+            font=ctk.CTkFont(family="Consolas", size=8, weight="bold"),
+        )
+        self.log_clear_button.grid(row=0, column=1, sticky="e")
 
         self.history = ctk.CTkTextbox(
             parent,
             wrap="word",
-            font=ctk.CTkFont(family="Consolas", size=13),
+            font=ctk.CTkFont(family="Consolas", size=10),
             text_color=TEXT,
-            fg_color="#05070d",
+            fg_color="#020713",
             border_width=1,
-            border_color="#1b4f6b",
-            corner_radius=8,
+            border_color=LINE,
+            corner_radius=RADIUS,
         )
-        self.history.grid(row=1, column=0, padx=14, pady=(0, 14), sticky="nsew")
+        self.history.grid(row=1, column=0, padx=10, pady=(26, 10), sticky="nsew")
         self.history.configure(state="disabled")
+        self.update_control_mode_buttons()
 
     def build_system_status(self, parent):
         parent.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(
             parent,
-            text="STATUS SYSTEMU",
+            text="SYSTEM STATUS",
             text_color=CYAN,
-            font=ctk.CTkFont(size=14, weight="bold"),
-        ).grid(row=0, column=0, padx=14, pady=(16, 12), sticky="ew")
+            anchor="w",
+            font=ctk.CTkFont(family="Consolas", size=10, weight="bold"),
+        ).grid(row=0, column=0, padx=10, pady=(10, 8), sticky="ew")
 
         clock_frame = ctk.CTkFrame(
             parent,
-            fg_color="#0f1b2d",
+            fg_color="transparent",
             border_width=1,
             border_color=LINE,
-            corner_radius=8,
+            corner_radius=0,
         )
-        clock_frame.grid(row=1, column=0, padx=14, pady=(0, 10), sticky="ew")
+        clock_frame.grid(row=1, column=0, padx=10, pady=(0, 8), sticky="ew")
         clock_frame.grid_columnconfigure(0, weight=1)
 
         self.time_label = ctk.CTkLabel(
             clock_frame,
             text="--:--:--",
             text_color=CYAN,
-            font=ctk.CTkFont(family="Consolas", size=24, weight="bold"),
+            font=ctk.CTkFont(family="Consolas", size=14, weight="bold"),
         )
-        self.time_label.grid(row=0, column=0, padx=10, pady=(10, 0), sticky="ew")
+        self.time_label.grid(row=0, column=0, padx=8, pady=(6, 0), sticky="ew")
 
         self.date_label = ctk.CTkLabel(
             clock_frame,
             text="---- -- --",
             text_color=MUTED,
-            font=ctk.CTkFont(family="Consolas", size=12),
+            font=ctk.CTkFont(family="Consolas", size=9),
         )
-        self.date_label.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="ew")
+        self.date_label.grid(row=1, column=0, padx=8, pady=(0, 6), sticky="ew")
 
-        self.build_lm_studio_status(parent, 2)
-        self.add_status_row(parent, 3, "Tryb głosu", "Nieznany")
-        self.add_status_row(parent, 4, "Mikrofon", "Nieznany")
-        self.add_status_row(parent, 5, "CPU", "brak danych")
-        self.add_status_row(parent, 6, "RAM", "brak danych")
-        self.build_phone_status(parent, 7)
+        self.add_status_row(parent, 2, "Backend", "Online")
+        self.add_status_row(parent, 3, "Hub", "Offline")
+        self.lm_server_label = self.add_status_row(parent, 4, "Processor / LLM", "Offline")
+        self.add_status_row(parent, 5, "Agent PC", "Offline")
+        self.phone_status_label = self.add_status_row(parent, 6, "Telefon", "Offline")
+        self.add_status_row(parent, 7, "Tryb", "PC")
+        self.lm_model_label = self.add_status_row(parent, 8, "Model", "brak")
+        self.add_status_row(parent, 9, "Device ID", "local-pc")
+        self.add_status_row(parent, 10, "API Token", "brak")
+        self.add_status_row(parent, 11, "Mikrofon", "Nieznany")
 
         ctk.CTkLabel(
             parent,
-            text="HUD LINK ACTIVE",
+            text="LOCAL NODE ACTIVE",
             text_color=MUTED,
-            font=ctk.CTkFont(size=11),
-        ).grid(row=8, column=0, padx=14, pady=(18, 0), sticky="s")
+            font=ctk.CTkFont(family="Consolas", size=8),
+        ).grid(row=12, column=0, padx=10, pady=(14, 0), sticky="s")
 
     def build_lm_studio_status(self, parent, row):
         frame = ctk.CTkFrame(
@@ -1493,27 +2236,76 @@ class JarvisGUI(ctk.CTk):
         refresh_button.grid(row=4, column=0, padx=10, pady=(0, 10), sticky="ew")
 
     def add_status_row(self, parent, row, name, value):
-        frame = ctk.CTkFrame(parent, fg_color="#0f1b2d", corner_radius=6)
-        frame.grid(row=row, column=0, padx=14, pady=6, sticky="ew")
-        frame.grid_columnconfigure(0, weight=1)
+        frame = ctk.CTkFrame(parent, fg_color="transparent", corner_radius=0)
+        frame.grid(row=row, column=0, padx=10, pady=0, sticky="ew")
+        frame.grid_columnconfigure(0, weight=0, minsize=92)
+        frame.grid_columnconfigure(1, weight=0)
+        frame.grid_columnconfigure(2, weight=1)
 
         ctk.CTkLabel(
             frame,
             text=name.upper(),
             text_color=MUTED,
             anchor="w",
-            font=ctk.CTkFont(size=11, weight="bold"),
-        ).grid(row=0, column=0, padx=10, pady=(8, 0), sticky="ew")
+            font=ctk.CTkFont(family="Consolas", size=8, weight="bold"),
+        ).grid(row=0, column=0, padx=(0, 6), pady=4, sticky="w")
+
+        dot_color = GREEN if str(value).lower() not in {"offline", "brak", "brak danych", "nieznany"} else RED
+        dot_label = ctk.CTkLabel(
+            frame,
+            text="●",
+            text_color=dot_color,
+            font=ctk.CTkFont(family="Consolas", size=7, weight="bold"),
+        )
+        dot_label.grid(row=0, column=1, padx=(0, 5), pady=4, sticky="e")
 
         value_label = ctk.CTkLabel(
             frame,
             text=value,
             text_color=TEXT,
-            anchor="w",
-            font=ctk.CTkFont(size=13),
+            anchor="e",
+            font=ctk.CTkFont(family="Consolas", size=8),
         )
-        value_label.grid(row=1, column=0, padx=10, pady=(0, 8), sticky="ew")
+        value_label.grid(row=0, column=2, padx=(0, 0), pady=4, sticky="ew")
         self.system_labels[name] = value_label
+        self.status_dots[name] = dot_label
+        return value_label
+
+    def add_status_row(self, parent, row, name, value):
+        frame = ctk.CTkFrame(parent, fg_color="transparent", corner_radius=0)
+        frame.grid(row=row, column=0, padx=10, pady=0, sticky="ew")
+        frame.grid_columnconfigure(0, weight=0, minsize=92)
+        frame.grid_columnconfigure(1, weight=0)
+        frame.grid_columnconfigure(2, weight=1)
+
+        ctk.CTkLabel(
+            frame,
+            text=name.upper(),
+            text_color=MUTED,
+            anchor="w",
+            font=ctk.CTkFont(family="Consolas", size=8, weight="bold"),
+        ).grid(row=0, column=0, padx=(0, 6), pady=4, sticky="w")
+
+        dot_color = GREEN if str(value).lower() not in {"offline", "brak", "brak danych", "nieznany"} else RED
+        dot_label = ctk.CTkLabel(
+            frame,
+            text="\u25cf",
+            text_color=dot_color,
+            font=ctk.CTkFont(family="Consolas", size=7, weight="bold"),
+        )
+        dot_label.grid(row=0, column=1, padx=(0, 5), pady=4, sticky="e")
+
+        value_label = ctk.CTkLabel(
+            frame,
+            text=value,
+            text_color=TEXT,
+            anchor="e",
+            font=ctk.CTkFont(family="Consolas", size=8),
+        )
+        value_label.grid(row=0, column=2, pady=4, sticky="ew")
+        self.system_labels[name] = value_label
+        self.status_dots[name] = dot_label
+        return value_label
 
     def draw_core(self, _event=None):
         if self.visual_mode == "transition_to_wave":
@@ -1544,26 +2336,18 @@ class JarvisGUI(ctk.CTk):
         canvas = self.core_canvas
         canvas.delete("all")
 
-        width = max(canvas.winfo_width(), 420)
-        height = max(canvas.winfo_height(), 285)
+        width = max(canvas.winfo_width(), 360)
+        height = max(canvas.winfo_height(), 320)
+        self.draw_hud_grid(canvas, width, height)
         cx = width / 2
         cy = height / 2
-        pulse = 1 + math.sin(self.pulse_phase / 10) * 0.05
-        radius = min(width, height) * (0.31 + 0.05 * progress) * pulse
-
-        line_color = self.fade_color(LINE, progress)
-        canvas.create_line(22, 28, width * 0.28, 28, fill=line_color, width=max(1, int(1 + progress)))
-        canvas.create_line(width * 0.72, 28, width - 22, 28, fill=line_color, width=max(1, int(1 + progress)))
-        canvas.create_line(22, height - 28, width * 0.28, height - 28, fill=line_color, width=max(1, int(1 + progress)))
-        canvas.create_line(width * 0.72, height - 28, width - 22, height - 28, fill=line_color, width=max(1, int(1 + progress)))
+        pulse = 1 + math.sin(self.pulse_phase / 14) * 0.025
+        radius = min(76, max(46, min(width, height) * 0.09 * self.hud_scale)) * pulse
 
         for scale, color, line_width in [
-            (1.18, "#1b4f6b", 1),
-            (1.0, CYAN, 2),
-            (0.82, "#2f7dff", 1),
-            (0.62, BLUE, 2),
-            (0.42, "#00eaff", 1),
-            (0.23, "#d7f7ff", 1),
+            (1.0, LINE, 1),
+            (0.76, "#15384c", 1),
+            (0.48, CYAN, 1),
         ]:
             r = radius * scale
             canvas.create_oval(
@@ -1575,35 +2359,56 @@ class JarvisGUI(ctk.CTk):
                 width=max(1, int(line_width * max(0.6, progress))),
             )
 
-        for angle in range(0, 360, 30):
-            radians = math.radians(angle + self.pulse_phase * 1.4)
-            inner = radius * 1.02
-            outer = radius * 1.22
+        sweep = math.radians((self.pulse_phase * 2.1) % 360)
+        canvas.create_line(
+            cx,
+            cy,
+            cx + math.cos(sweep) * radius * 0.9,
+            cy + math.sin(sweep) * radius * 0.9,
+            fill=self.fade_color(CYAN, progress),
+            width=1,
+        )
+
+        for angle in range(0, 360, 45):
+            radians = math.radians(angle)
+            inner = radius * 0.88
+            outer = radius * 1.02
             x1 = cx + math.cos(radians) * inner
             y1 = cy + math.sin(radians) * inner
             x2 = cx + math.cos(radians) * outer
             y2 = cy + math.sin(radians) * outer
-            canvas.create_line(x1, y1, x2, y2, fill=self.fade_color(CYAN, progress), width=max(1, int(progress * 2)))
+            canvas.create_line(x1, y1, x2, y2, fill=self.fade_color(LINE, progress), width=1)
 
-        for angle in range(0, 360, 90):
-            radians = math.radians(angle - self.pulse_phase)
-            arc_radius = radius * 0.72
-            x = cx + math.cos(radians) * arc_radius
-            y = cy + math.sin(radians) * arc_radius
-            dot_radius = max(1, 3 * progress)
-            canvas.create_oval(
-                x - dot_radius,
-                y - dot_radius,
-                x + dot_radius,
-                y + dot_radius,
-                fill=self.fade_color(CYAN, progress),
-                outline="",
-            )
+        dot_x = cx + math.cos(sweep + 0.7) * radius * 0.55
+        dot_y = cy + math.sin(sweep + 0.7) * radius * 0.55
+        canvas.create_oval(dot_x - 2, dot_y - 2, dot_x + 2, dot_y + 2, fill=self.fade_color(GREEN, progress), outline="")
+        canvas.create_oval(cx - 2, cy - 2, cx + 2, cy + 2, fill=self.fade_color(CYAN, progress), outline="")
 
-        canvas.create_text(cx, cy - 10, text="CORE", fill=self.fade_color(TEXT, progress), font=("Segoe UI", 24, "bold"))
-        canvas.create_text(cx, cy + 22, text="ONLINE", fill=self.fade_color(CYAN, progress), font=("Segoe UI", 14, "bold"))
-        canvas.create_line(26, height - 24, width - 26, height - 24, fill=self.fade_color("#1b4f6b", progress), width=1)
-        canvas.create_text(width - 58, height - 40, text="PULSE", fill=self.fade_color(MUTED, progress), font=("Consolas", 10))
+        canvas.create_text(cx, cy + radius + 22, text=self.core_state, fill=self.fade_color(GREEN, progress), font=("Consolas", 9, "bold"))
+
+    def draw_hud_grid(self, canvas, width, height):
+        for x in range(0, int(width), 42):
+            canvas.create_line(x, 0, x, height, fill="#041321", width=1)
+        for y in range(0, int(height), 42):
+            canvas.create_line(0, y, width, y, fill="#041321", width=1)
+        for x in range(21, int(width), 42):
+            for y in range(21, int(height), 42):
+                canvas.create_oval(x - 1, y - 1, x + 1, y + 1, fill="#092034", outline="")
+
+    def draw_root_grid(self, _event=None):
+        if not hasattr(self, "bg_canvas"):
+            return
+        canvas = self.bg_canvas
+        canvas.delete("all")
+        width = max(canvas.winfo_width(), 1)
+        height = max(canvas.winfo_height(), 1)
+        for x in range(0, int(width), 44):
+            canvas.create_line(x, 0, x, height, fill="#03111d", width=1)
+        for y in range(0, int(height), 44):
+            canvas.create_line(0, y, width, y, fill="#03111d", width=1)
+        for x in range(22, int(width), 44):
+            for y in range(22, int(height), 44):
+                canvas.create_oval(x - 1, y - 1, x + 1, y + 1, fill="#061a2a", outline="")
 
     def draw_wave_frame(self, progress, motion_phase):
         progress = self.clamp(progress)
@@ -1611,17 +2416,16 @@ class JarvisGUI(ctk.CTk):
         canvas = self.core_canvas
         canvas.delete("all")
 
-        width = max(canvas.winfo_width(), 420)
-        height = max(canvas.winfo_height(), 285)
+        width = max(canvas.winfo_width(), 360)
+        height = max(canvas.winfo_height(), 320)
+        self.draw_hud_grid(canvas, width, height)
         cx = width / 2
         cy = height / 2
-        palette = [CYAN, "#2f7dff", "#8a5cff", "#8a5cff"]
+        palette = [CYAN, BLUE, PURPLE, "#495f83"]
 
-        frame_color = self.fade_color("#1b4f6b", progress)
-        canvas.create_line(22, 28, width * 0.28, 28, fill=frame_color, width=1)
-        canvas.create_line(width * 0.72, 28, width - 22, 28, fill=frame_color, width=1)
-        canvas.create_line(22, height - 28, width * 0.28, height - 28, fill=frame_color, width=1)
-        canvas.create_line(width * 0.72, height - 28, width - 22, height - 28, fill=frame_color, width=1)
+        frame_color = self.fade_color(LINE, progress)
+        canvas.create_line(width * 0.38, cy - 78, width * 0.62, cy - 78, fill=frame_color, width=1)
+        canvas.create_line(width * 0.38, cy + 78, width * 0.62, cy + 78, fill=frame_color, width=1)
 
         bar_count = 22
         visible_bars = max(2, int(bar_count * progress))
@@ -1638,7 +2442,7 @@ class JarvisGUI(ctk.CTk):
             height_scale = 0.22 + life * math.sin(life * math.pi) * 0.78
             edge_distance = min(index + 1, visible_bars - index)
             edge_envelope = self.clamp(edge_distance / 4)
-            bar_height = (8 + height_scale * 102) * progress * edge_envelope
+            bar_height = (5 + height_scale * 64) * progress * edge_envelope
             x1 = start_x + index * (bar_width + bar_gap)
             x2 = x1 + bar_width
             color = self.fade_color(palette[index % len(palette)], progress * edge_envelope)
@@ -1651,15 +2455,14 @@ class JarvisGUI(ctk.CTk):
                 outline="",
             )
 
-        canvas.create_text(cx, 54, text="LISTENING", fill=self.fade_color(CYAN, progress), font=("Segoe UI", 18, "bold"))
+        canvas.create_text(cx, cy - 112, text="LISTENING", fill=self.fade_color(GREEN, progress), font=("Consolas", 10, "bold"))
         canvas.create_text(
             cx,
-            height - 48,
+            cy + 112,
             text="AUDIO INPUT ACTIVE",
-            fill=self.fade_color("#8a5cff", progress),
-            font=("Consolas", 11, "bold"),
+            fill=self.fade_color(MUTED, progress),
+            font=("Consolas", 8, "bold"),
         )
-        canvas.create_line(26, height - 24, width - 26, height - 24, fill=self.fade_color("#2f7dff", progress), width=1)
 
     def start_core_to_wave_transition(self):
         self.visual_mode = "transition_to_wave"
@@ -1750,13 +2553,17 @@ class JarvisGUI(ctk.CTk):
     def load_jarvis(self):
         try:
             self.config = load_config()
+            self.load_ui_preferences()
+            self.apply_ui_preferences()
             self.assistant_name = self.config["assistant_name"]
             self.client = create_client(self.config)
             self.messages = create_messages(self.config)
             self.update_system_status("Gotowy")
             self.refresh_lm_studio_status()
+            self.refresh_hub_agent_status()
             self.refresh_phone_status()
             self.after(5000, self.refresh_phone_status_periodic)
+            self.after(5000, self.refresh_hub_agent_status_periodic)
             self.append_history(f"{self.assistant_name} uruchomiony.")
         except ConfigError as e:
             self.set_error_status(e)
@@ -1783,11 +2590,22 @@ class JarvisGUI(ctk.CTk):
             if label:
                 label.configure(text=str(value))
 
+        extra_values = {
+            "Tryb głosu": "Włączony" if self.config.get("voice_enabled", False) else "Wyłączony",
+            "Model": self.config.get("model", "local-model"),
+            "Device ID": self.config.get("device_id", "local-pc"),
+            "API Token": "••••••" if self.config.get("api_token") else "brak",
+        }
+        for name, value in extra_values.items():
+            label = self.system_labels.get(name)
+            if label:
+                label.configure(text=str(value))
+
     def refresh_lm_studio_status(self):
         if self.lm_server_label:
-            self.lm_server_label.configure(text="Server: Sprawdzam...")
+            self.lm_server_label.configure(text="Sprawdzam...")
         if self.lm_model_label:
-            self.lm_model_label.configure(text="Model: Sprawdzam...")
+            self.lm_model_label.configure(text="Sprawdzam...")
 
         thread = threading.Thread(target=self.refresh_lm_studio_status_worker, daemon=True)
         thread.start()
@@ -1797,8 +2615,8 @@ class JarvisGUI(ctk.CTk):
         if self.config:
             expected_model = self.config.get("model", expected_model)
 
-        server_text = "Server: Offline"
-        model_text = "Model: brak"
+        server_text = "Offline"
+        model_text = "brak"
 
         try:
             if requests is None:
@@ -1814,9 +2632,9 @@ class JarvisGUI(ctk.CTk):
                 if isinstance(model, dict) and isinstance(model.get("id"), str)
             }
 
-            server_text = "Server: Online"
+            server_text = "Online"
             if expected_model in model_ids:
-                model_text = f"Model: {expected_model} aktywny"
+                model_text = f"{expected_model}"
         except Exception:
             pass
 
@@ -1825,12 +2643,18 @@ class JarvisGUI(ctk.CTk):
     def update_lm_studio_labels(self, server_text, model_text):
         if self.lm_server_label:
             self.lm_server_label.configure(text=server_text)
+        dot = self.status_dots.get("Processor / LLM")
+        if dot:
+            dot.configure(text_color=GREEN if server_text == "Online" else RED)
         if self.lm_model_label:
             self.lm_model_label.configure(text=model_text)
+        model_dot = self.status_dots.get("Model")
+        if model_dot:
+            model_dot.configure(text_color=GREEN if model_text != "brak" else RED)
 
     def refresh_phone_status(self):
         if self.phone_status_label:
-            self.phone_status_label.configure(text="Telefon: Sprawdzam...")
+            self.phone_status_label.configure(text="Sprawdzam...")
 
         thread = threading.Thread(target=self.refresh_phone_status_worker, daemon=True)
         thread.start()
@@ -1839,8 +2663,64 @@ class JarvisGUI(ctk.CTk):
         self.refresh_phone_status()
         self.after(5000, self.refresh_phone_status_periodic)
 
+    def refresh_hub_agent_status(self):
+        thread = threading.Thread(target=self.refresh_hub_agent_status_worker, daemon=True)
+        thread.start()
+
+    def refresh_hub_agent_status_periodic(self):
+        self.refresh_hub_agent_status()
+        self.after(5000, self.refresh_hub_agent_status_periodic)
+
+    def refresh_hub_agent_status_worker(self):
+        hub_status = "Offline"
+        agent_status = "Offline"
+
+        try:
+            if requests is None:
+                raise RuntimeError("requests is not installed")
+
+            hub_url = "http://127.0.0.1:8002"
+            auth_token = "dev-token"
+            device_id = "local-pc"
+            if self.config:
+                hub_url = str(self.config.get("hub_url") or hub_url).replace("ws://", "http://").replace("wss://", "https://").rstrip("/")
+                auth_token = str(self.config.get("auth_token") or auth_token)
+                device_id = str(self.config.get("device_id") or device_id)
+
+            health_response = requests.get(f"{hub_url}/health", timeout=1.5)
+            health_response.raise_for_status()
+            hub_status = "Online"
+
+            agents_response = requests.get(
+                f"{hub_url}/agents",
+                headers={"X-Jarvis-Token": auth_token},
+                timeout=1.5,
+            )
+            agents_response.raise_for_status()
+            agents = agents_response.json().get("agents", [])
+            if device_id in agents:
+                agent_status = "Online"
+        except Exception:
+            pass
+
+        self.after(0, lambda: self.update_hub_agent_labels(hub_status, agent_status))
+
+    def update_hub_agent_labels(self, hub_status, agent_status):
+        hub_label = self.system_labels.get("Hub")
+        if hub_label:
+            hub_label.configure(text=hub_status)
+        hub_dot = self.status_dots.get("Hub")
+        if hub_dot:
+            hub_dot.configure(text_color=GREEN if hub_status == "Online" else RED)
+        agent_label = self.system_labels.get("Agent PC")
+        if agent_label:
+            agent_label.configure(text=agent_status)
+        agent_dot = self.status_dots.get("Agent PC")
+        if agent_dot:
+            agent_dot.configure(text_color=GREEN if agent_status == "Online" else RED)
+
     def refresh_phone_status_worker(self):
-        status_text = "Telefon: Offline"
+        status_text = "Offline"
         seen_text = "Ostatnio widziany: brak"
         command_text = "Ostatnia komenda: brak"
 
@@ -1853,9 +2733,10 @@ class JarvisGUI(ctk.CTk):
             token = self.config.get("api_token")
             if not token:
                 raise RuntimeError("brak api_token")
+            backend_url = str(self.config.get("backend_url") or "http://127.0.0.1:8000").rstrip("/")
 
             response = requests.get(
-                "http://127.0.0.1:8000/phone/status",
+                f"{backend_url}/phone/status",
                 headers={"X-Jarvis-Token": token},
                 timeout=2,
             )
@@ -1864,11 +2745,11 @@ class JarvisGUI(ctk.CTk):
             response.raise_for_status()
 
             data = response.json()
-            status_text = "Telefon: Online" if data.get("online") else "Telefon: Offline"
+            status_text = "Online" if data.get("online") else "Offline"
             seen_text = f"Ostatnio widziany: {data.get('last_seen') or 'brak'}"
             command_text = f"Ostatnia komenda: {data.get('last_command') or 'brak'}"
         except Exception as e:
-            status_text = "Telefon: Blad"
+            status_text = "Błąd"
             seen_text = "Ostatnio widziany: brak"
             command_text = f"Ostatnia komenda: {str(e).splitlines()[0][:32]}"
 
@@ -1880,6 +2761,9 @@ class JarvisGUI(ctk.CTk):
     def update_phone_status_labels(self, status_text, seen_text, command_text):
         if self.phone_status_label:
             self.phone_status_label.configure(text=status_text)
+        phone_dot = self.status_dots.get("Telefon")
+        if phone_dot:
+            phone_dot.configure(text_color=GREEN if status_text == "Online" else RED)
         if self.phone_seen_label:
             self.phone_seen_label.configure(text=seen_text)
         if self.phone_command_label:
@@ -1936,6 +2820,10 @@ class JarvisGUI(ctk.CTk):
 
     def set_control_mode(self, value):
         self.control_mode = "phone" if value == "Steruj telefonem" else "pc"
+        self.update_control_mode_buttons()
+        mode_label = self.system_labels.get("Tryb")
+        if mode_label:
+            mode_label.configure(text="Telefon" if self.is_phone_control_mode() else "PC")
         if self.is_phone_control_mode():
             message = self.phone_mode_message()
             self.set_status(message)
@@ -1948,6 +2836,21 @@ class JarvisGUI(ctk.CTk):
         self.set_status("Gotowy")
         if self.apps_panel_visible:
             self.refresh_apps_list()
+
+    def update_control_mode_buttons(self):
+        if not hasattr(self, "control_pc_button") or not hasattr(self, "control_phone_button"):
+            return
+        pc_active = not self.is_phone_control_mode()
+        self.control_pc_button.configure(
+            fg_color="#17102a" if pc_active else "#030b16",
+            text_color=TEXT if pc_active else MUTED,
+            border_color="#a58cff" if pc_active else PURPLE,
+        )
+        self.control_phone_button.configure(
+            fg_color="#17102a" if not pc_active else "#030b16",
+            text_color=TEXT if not pc_active else MUTED,
+            border_color="#a58cff" if not pc_active else PURPLE,
+        )
 
     def handle_phone_mode_request(self):
         message = self.phone_mode_message()
@@ -1968,9 +2871,10 @@ class JarvisGUI(ctk.CTk):
         token = self.config.get("api_token")
         if not token:
             raise RuntimeError("Brak api_token w config.json")
+        backend_url = str(self.config.get("backend_url") or "http://127.0.0.1:8000").rstrip("/")
 
         response = requests.post(
-            "http://127.0.0.1:8000/phone/command",
+            f"{backend_url}/phone/command",
             json={
                 "action": "open_mobile_app",
                 "target": target,
@@ -1987,6 +2891,20 @@ class JarvisGUI(ctk.CTk):
 
     def set_status(self, status):
         self.status_label.configure(text=status)
+        normalized = str(status).lower()
+        if "słuch" in normalized or "sĹ‚uch" in normalized:
+            self.core_state = "LISTENING"
+        elif "rozpozn" in normalized or "my" in normalized or "wykon" in normalized:
+            self.core_state = "PROCESSING"
+        elif "błąd" in normalized or "bĹ‚Ä…d" in normalized:
+            self.core_state = "ERROR"
+        elif "mówi" in normalized or "odpow" in normalized:
+            self.core_state = "RESPONDING"
+        else:
+            self.core_state = "READY"
+        if hasattr(self, "core_state_label"):
+            color = RED if self.core_state == "ERROR" else GREEN
+            self.core_state_label.configure(text=self.core_state, text_color=color)
 
     def set_error_status(self, detail=None):
         status = "Błąd"
@@ -2009,7 +2927,33 @@ class JarvisGUI(ctk.CTk):
         self.entry.configure(state=state)
         self.send_button.configure(state=state)
 
+    def show_entry_placeholder(self):
+        if not hasattr(self, "entry"):
+            return
+        self.entry_placeholder_active = True
+        self.entry.configure(text_color=PLACEHOLDER)
+        self.entry.delete("1.0", "end")
+        self.entry.insert("1.0", self.entry_placeholder)
+
+    def hide_entry_placeholder(self):
+        if self.entry_placeholder_active:
+            self.entry.delete("1.0", "end")
+            self.entry.configure(text_color=TEXT)
+            self.entry_placeholder_active = False
+
+    def on_entry_focus_in(self, _event):
+        self.hide_entry_placeholder()
+
+    def on_entry_focus_out(self, _event):
+        if not self.entry.get("1.0", "end-1c").strip():
+            self.show_entry_placeholder()
+
+    def on_entry_key_press(self, event):
+        if self.entry_placeholder_active and event.keysym not in {"Shift_L", "Shift_R", "Control_L", "Control_R", "Alt_L", "Alt_R", "Tab"}:
+            self.hide_entry_placeholder()
+
     def on_entry_return(self, event):
+        self.hide_entry_placeholder()
         if event.state & 0x0001:
             self.entry.insert("insert", "\n")
             return "break"
@@ -2064,11 +3008,15 @@ class JarvisGUI(ctk.CTk):
         if self.is_busy:
             return
 
+        if self.entry_placeholder_active:
+            return
+
         user_text = self.entry.get("1.0", "end-1c").strip()
         if not user_text:
             return
 
         self.entry.delete("1.0", "end")
+        self.show_entry_placeholder()
         self.submit_user_text(user_text)
 
     def submit_user_text(self, user_text):
@@ -2311,9 +3259,11 @@ class JarvisGUI(ctk.CTk):
 
         def worker():
             try:
+                self.set_status_from_thread("Odpowiadam")
                 from voice import speak
 
                 speak(text)
+                self.after(0, lambda: self.set_status("Gotowy"))
             except Exception as e:
                 self.set_error_status_from_thread(e)
                 self.after(1500, lambda: self.set_status("Gotowy"))

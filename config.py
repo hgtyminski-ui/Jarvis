@@ -47,5 +47,10 @@ def load_config():
     config.setdefault("whisper_device", "cpu")
     config.setdefault("whisper_compute_type", "int8")
     config.setdefault("processor_url", "http://127.0.0.1:8001")
+    config.setdefault("backend_url", "http://127.0.0.1:8000")
+    config.setdefault("api_token", "")
+    config.setdefault("text_scale", 1.0)
+    config.setdefault("hud_scale", 1.15)
+    config.setdefault("show_system_status", True)
 
     return config
