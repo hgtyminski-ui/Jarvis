@@ -1818,6 +1818,94 @@ async def send_command_to_agent(device_id: str, command: dict[str, Any]):
 def is_local_device(device_id: str):
     return device_id.strip().lower() in {"local-pc", "localhost", "127.0.0.1"}
 
+def clean_jarvis_response(text: str):
+    clean = str(text or "").strip()
+
+    prefixes = [
+        "Jarvis:",
+        "JARVIS:",
+        "jarvis:",
+    ]
+
+    for prefix in prefixes:
+        if clean.startswith(prefix):
+            return clean[len(prefix):].strip()
+
+    return clean
+
+
+def is_likely_command(text: str):
+    normalized = (
+        text.strip()
+        .lower()
+        .replace("ó", "o")
+        .replace("ą", "a")
+        .replace("ę", "e")
+        .replace("ł", "l")
+        .replace("ń", "n")
+        .replace("ś", "s")
+        .replace("ż", "z")
+        .replace("ź", "z")
+        .replace("ć", "c")
+    )
+
+    command_prefixes = [
+        "otworz ",
+        "zamknij ",
+        "uruchom ",
+        "odpal ",
+        "wlacz ",
+        "włącz ",
+        "pusc ",
+        "pusc ",
+        "znajdz na spotify",
+        "zapisz notatke",
+        "dodaj notatke",
+        "utworz notatke",
+        "zanotuj",
+        "pokaz notatki",
+        "lista notatek",
+    ]
+
+    return any(normalized.startswith(prefix) for prefix in command_prefixes)
+
+
+def normalize_command_text(text: str):
+    return (
+        text.strip()
+        .lower()
+        .replace("ó", "o")
+        .replace("ą", "a")
+        .replace("ę", "e")
+        .replace("ł", "l")
+        .replace("ń", "n")
+        .replace("ś", "s")
+        .replace("ż", "z")
+        .replace("ź", "z")
+        .replace("ć", "c")
+    )
+
+
+def is_clear_conversation_request(text: str):
+    normalized = normalize_command_text(text)
+
+    return normalized in {
+        "wyczysc rozmowe",
+        "wyczysc pamiec",
+        "zapomnij rozmowe",
+        "zapomnij kontekst",
+        "reset rozmowy",
+        "resetuj rozmowe",
+        "nowa rozmowa",
+    }
+
+
+def clear_conversation_memory():
+    global runtime
+
+    with runtime_lock:
+        runtime = None
+
 
 def verify_token(x_jarvis_token: str | None = Header(default=None)):
     try:
@@ -1913,20 +2001,34 @@ async def send_agent_command(
     return {"status": "sent"}
 
 
+@app.post("/conversation/clear")
+def clear_conversation(_authorized: None = Depends(verify_token)):
+    clear_conversation_memory()
+    return {"status": "cleared", "response": "Wyczyściłem pamięć rozmowy."}
+
+
 @app.post("/chat")
 def chat(request: ChatRequest, _authorized: None = Depends(verify_token)):
+    if is_clear_conversation_request(request.message):
+        clear_conversation_memory()
+        return {"response": "Wyczyściłem pamięć rozmowy."}
+
     try:
         result = process_jarvis_text(request.message)
-        return {"response": result.response}
+        return {"response": clean_jarvis_response(result.response)}
     except Exception as e:
         return {"response": f"Blad Jarvisa: {e}"}
 
 
 @app.post("/command")
 def command(request: CommandRequest, _authorized: None = Depends(verify_token)):
+    if is_clear_conversation_request(request.command):
+        clear_conversation_memory()
+        return {"response": "Wyczyściłem pamięć rozmowy."}
+
     try:
         result = process_jarvis_text(request.command)
-        return {"response": result.response}
+        return {"response": clean_jarvis_response(result.response)}
     except Exception as e:
         return {"response": f"Blad Jarvisa: {e}"}
 
@@ -1939,12 +2041,38 @@ async def process_text(request: ProcessTextRequest, _authorized: None = Depends(
 
     device_id = request.device_id or "local-pc"
 
+    if is_clear_conversation_request(text):
+        clear_conversation_memory()
+        return {
+            "status": "ok",
+            "response": "Wyczyściłem pamięć rozmowy.",
+            "device_id": device_id,
+            "command": {"action": "clear_conversation", "parameters": {}},
+        }
+
+    if not is_likely_command(text):
+        try:
+            result = process_jarvis_text(text)
+            return {
+                "status": "ok",
+                "response": clean_jarvis_response(result.response),
+                "device_id": device_id,
+                "command": {"action": "chat", "parameters": {}},
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "response": f"Blad Jarvisa: {e}",
+                "device_id": device_id,
+            }
+
     try:
         command = interpret_with_processor(text)
     except Exception:
         return {
             "status": "error",
             "response": "Processor niedostępny.",
+            "device_id": device_id,
         }
 
     action = str(command.get("action") or "unknown").strip().lower()
@@ -2049,19 +2177,38 @@ async def process_text(request: ProcessTextRequest, _authorized: None = Depends(
             }
 
     if action == "chat":
-        response = command.get("response") or parameters.get("response") or ""
-        return {
-            "status": "ok",
-            "response": str(response),
-            "device_id": device_id,
-        }
+        try:
+            result = process_jarvis_text(text)
+            return {
+                "status": "ok",
+                "response": clean_jarvis_response(result.response),
+                "device_id": device_id,
+                "command": command,
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "response": f"Blad Jarvisa: {e}",
+                "device_id": device_id,
+                "command": command,
+            }
 
     if action == "unknown":
-        return {
-            "status": "ok",
-            "response": "Nie rozpoznano polecenia.",
-            "device_id": device_id,
-        }
+        try:
+            result = process_jarvis_text(text)
+            return {
+                "status": "ok",
+                "response": clean_jarvis_response(result.response),
+                "device_id": device_id,
+                "command": command,
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "response": f"Blad Jarvisa: {e}",
+                "device_id": device_id,
+                "command": command,
+            }
 
     return {
         "status": "ok",
