@@ -1883,7 +1883,10 @@ class JarvisGUI(ctk.CTk):
                 if result == "closed":
                     message = f"{self.assistant_name}: Zamykam {target}."
                 elif result == "not_running":
-                    message = f"{self.assistant_name}: Nie znalazłem uruchomionego procesu dla: {target}."
+                    if target == "whatsapp":
+                        message = f"{self.assistant_name}: WhatsApp nie był uruchomiony."
+                    else:
+                        message = f"{self.assistant_name}: Nie znalazłem uruchomionego procesu dla: {target}."
                 else:
                     message = f"{self.assistant_name}: Nie znam aplikacji: {target}. Dodaj ją do processes.json."
             else:

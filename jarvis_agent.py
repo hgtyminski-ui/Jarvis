@@ -73,7 +73,10 @@ async def handle_command(command):
             print("Unknown action")
             return
         result = close_app(app_name)
-        print(f"close_app {app_name}: {result}")
+        if result == "not_running" and app_name == "whatsapp":
+            print("WhatsApp nie był uruchomiony.")
+        else:
+            print(f"close_app {app_name}: {result}")
         return
 
     if action == "chat":

@@ -1969,7 +1969,14 @@ async def process_text(request: ProcessTextRequest, _authorized: None = Depends(
                 response = f"Otwieram {app_name}." if result == "opened" else f"Nie znam aplikacji: {app_name}."
             else:
                 result = close_app(app_name)
-                response = f"Zamykam {app_name}."
+                if result == "closed":
+                    response = f"Zamykam {app_name}."
+                elif result == "not_running" and app_name == "whatsapp":
+                    response = "WhatsApp nie był uruchomiony."
+                elif result == "not_running":
+                    response = f"{app_name} nie był uruchomiony."
+                else:
+                    response = f"Nie znam aplikacji: {app_name}."
             return {
                 "status": "ok",
                 "response": response,
@@ -2021,6 +2028,10 @@ def toggle_app(request: AppToggleRequest, _authorized: None = Depends(verify_tok
     try:
         if is_app_running(app_name):
             result = close_app(app_name)
+            if result == "not_running" and app_name == "whatsapp":
+                return {"response": "WhatsApp nie był uruchomiony.", "result": result}
+            if result == "not_running":
+                return {"response": f"{app_name} nie był uruchomiony.", "result": result}
             return {"response": f"Zamykam {app_name}.", "result": result}
 
         result = open_app(app_name)

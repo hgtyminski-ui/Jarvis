@@ -20,6 +20,7 @@ python -m uvicorn main:app --host 127.0.0.1 --port 8000
 - Jarvis Processor działa na `127.0.0.1:8001`.
 - Agent łączy się przez WebSocket: `/agent/connect/{device_id}`.
 - Endpointy `/agents` i `/process-text` wymagają nagłówka `X-Jarvis-Token`.
+- Endpointy `/notes`, `/notes/{id}` również wymagają nagłówka `X-Jarvis-Token` i zapisują dane w `data/notes.json`.
 - Domyślny token developerski: `dev-token`.
 
 ## Konfiguracja

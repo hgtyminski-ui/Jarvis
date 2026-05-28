@@ -37,6 +37,7 @@ ALIASES_PATH = get_base_path() / "aliases.json"
 PROCESSES_PATH = get_base_path() / "processes.json"
 APP_CATEGORIES_PATH = get_base_path() / "app_categories.json"
 NOTES_PATH = get_base_path() / "notes"
+WHATSAPP_PROCESS_NAMES = ["WhatsApp.exe", "WhatsApp", "WhatsAppApp.exe"]
 NOTE_LIST_PATTERNS = [
     "jakie mam notatki",
     "jakie mam zapisane notatki",
@@ -465,6 +466,9 @@ def open_app(target):
 
 def close_app(target):
     target = resolve_alias(target)
+    if target == "whatsapp":
+        return close_whatsapp()
+
     processes = load_processes()
     process_name = processes.get(target)
 
@@ -487,14 +491,91 @@ def close_app(target):
     return "closed"
 
 
+def taskkill_process(process_name):
+    try:
+        result = subprocess.run(
+            ["taskkill", "/IM", process_name, "/F"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return False
+
+    return result.returncode == 0
+
+
+def close_processes_by_window_or_name(pattern):
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    powershell_command = (
+        "$pattern = '*{0}*'; "
+        "$targets = Get-Process | Where-Object "
+        "{{ $_.ProcessName -like $pattern -or $_.MainWindowTitle -like $pattern }}; "
+        "if (-not $targets) {{ exit 1 }}; "
+        "$targets | Stop-Process -Force; exit 0"
+    ).format(pattern.replace("'", "''"))
+
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", powershell_command],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=creationflags,
+        )
+    except OSError:
+        return False
+
+    return result.returncode == 0
+
+
+def close_whatsapp():
+    closed = False
+    for process_name in WHATSAPP_PROCESS_NAMES:
+        if taskkill_process(process_name):
+            closed = True
+
+    if close_processes_by_window_or_name("WhatsApp"):
+        closed = True
+
+    return "closed" if closed else "not_running"
+
+
 def is_app_running(target):
     target = resolve_alias(target)
+    if target == "whatsapp":
+        return is_whatsapp_running()
+
     processes = load_processes()
     process_name = processes.get(target)
 
     if not process_name:
         return False
 
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        result = subprocess.run(
+            ["tasklist", "/FI", f"IMAGENAME eq {process_name}", "/NH"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            creationflags=creationflags,
+        )
+    except OSError:
+        return False
+
+    if result.returncode != 0:
+        return False
+
+    return process_name.lower() in result.stdout.lower()
+
+
+def is_whatsapp_running():
+    return any(is_process_running(process_name) for process_name in WHATSAPP_PROCESS_NAMES)
+
+
+def is_process_running(process_name):
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
         result = subprocess.run(
