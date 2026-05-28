@@ -1950,6 +1950,66 @@ async def process_text(request: ProcessTextRequest, _authorized: None = Depends(
     action = str(command.get("action") or "unknown").strip().lower()
     parameters = command.get("parameters") if isinstance(command.get("parameters"), dict) else {}
 
+    if action in {"create_note", "note_create"}:
+        title = str(command.get("title") or parameters.get("title") or "").strip()
+        content = str(
+            command.get("content")
+            or parameters.get("content")
+            or parameters.get("text")
+            or ""
+        ).strip()
+        needs_title = bool(command.get("needs_title") or parameters.get("needs_title")) or not title
+
+        if needs_title:
+            return {
+                "status": "need_input",
+                "response": "Podaj tytuł notatki.",
+                "missing": "title",
+                "draft": {"content": content},
+                "command": command,
+                "device_id": device_id,
+            }
+
+        try:
+            result = create_note(content, title)
+        except Exception as e:
+            return {
+                "status": "error",
+                "response": f"Blad notatki: {e}",
+                "device_id": device_id,
+            }
+
+        if result == "saved":
+            return {
+                "status": "ok",
+                "response": f"Zapisałem notatkę: {title}",
+                "device_id": device_id,
+            }
+
+        return {
+            "status": "error",
+            "response": "Brakuje treści notatki.",
+            "device_id": device_id,
+        }
+
+    if action == "list_notes":
+        notes = load_notes()
+        if not notes:
+            response = "Nie masz zapisanych notatek."
+        else:
+            lines = ["Zapisane notatki:"]
+            for note in notes:
+                title = str(note.get("title") or "Bez tytułu")
+                created_at = str(note.get("created_at") or "brak daty")
+                lines.append(f"- {title} - {created_at}")
+            response = "\n".join(lines)
+
+        return {
+            "status": "ok",
+            "response": response,
+            "device_id": device_id,
+        }
+
     if action in {"open_app", "close_app"}:
         app_name = str(command.get("app") or parameters.get("app") or "").strip().lower()
         if not app_name:
