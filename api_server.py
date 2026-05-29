@@ -1,6 +1,7 @@
 import json
 import urllib.error
 import urllib.request
+import socket
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -1949,6 +1950,13 @@ def note_to_public(note: dict):
 def safe_settings(config: dict):
     return {name: config.get(name) for name in SAFE_SETTINGS}
 
+def get_local_ip():
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("8.8.8.8", 80))
+            return sock.getsockname()[0]
+    except Exception:
+        return "127.0.0.1"
 
 @app.get("/", response_class=HTMLResponse)
 def index():
@@ -1966,6 +1974,17 @@ def get_status():
             "lm_studio": "offline",
             "model": "local-model",
         }
+    
+@app.get("/pairing/info")
+def get_pairing_info(_authorized: None = Depends(verify_token)):
+    config = load_config()
+    host_ip = get_local_ip()
+
+    return {
+        "backend_url": f"http://{host_ip}:8000",
+        "api_token": config.get("api_token") or "",
+        "device_id": "local-pc",
+    }
 
 
 @app.websocket("/agent/connect/{device_id}")
