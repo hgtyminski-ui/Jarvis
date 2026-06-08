@@ -4,6 +4,7 @@ import urllib.request
 import socket
 from collections import deque
 from datetime import datetime
+from html import escape
 from pathlib import Path
 from threading import Lock
 from typing import Any
@@ -448,7 +449,7 @@ INDEX_HTML = r"""
     }
 
     .quick-actions {
-      grid-template-columns: repeat(5, minmax(0, 1fr));
+      grid-template-columns: repeat(6, minmax(0, 1fr));
       margin-top: 12px;
     }
 
@@ -706,6 +707,7 @@ INDEX_HTML = r"""
             <button type="button" data-app="steam">Steam</button>
             <button type="button" data-app="netflix">Netflix</button>
             <button id="quickStatusButton" type="button">Status</button>
+            <button id="pairingButton" type="button">Połącz telefon</button>
           </div>
         </section>
       </main>
@@ -1147,7 +1149,7 @@ INDEX_HTML = r"""
     }
 
     .quick-actions {
-      grid-template-columns: repeat(5, minmax(0, 1fr));
+      grid-template-columns: repeat(6, minmax(0, 1fr));
       margin-top: 8px;
     }
 
@@ -1717,6 +1719,7 @@ INDEX_HTML = r"""
     document.getElementById("statusButton").addEventListener("click", checkStatus);
     document.getElementById("quickStatusButton").addEventListener("click", checkStatus);
     document.getElementById("hubStatusButton").addEventListener("click", checkHubStatus);
+    document.getElementById("pairingButton").addEventListener("click", () => window.open("/pairing-qr", "_blank"));
     document.getElementById("refreshAppsButton").addEventListener("click", loadApps);
     document.getElementById("refreshNotesButton").addEventListener("click", loadNotes);
     document.getElementById("newNoteButton").addEventListener("click", clearNoteEditor);
@@ -1954,9 +1957,168 @@ def get_local_ip():
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             sock.connect(("8.8.8.8", 80))
-            return sock.getsockname()[0]
+            ip_address = sock.getsockname()[0]
+            if ip_address and not ip_address.startswith("127."):
+                return ip_address
     except Exception:
-        return "127.0.0.1"
+        pass
+
+    return None
+
+
+def get_pairing_info_payload():
+    try:
+        config = load_config()
+    except Exception:
+        config = {}
+
+    local_ip = get_local_ip()
+    configured_backend_url = str(config.get("backend_url") or "").strip()
+    backend_url = f"http://{local_ip}:8000" if local_ip else configured_backend_url
+
+    if not backend_url:
+        backend_url = "http://127.0.0.1:8000"
+
+    return {
+        "backendUrl": backend_url.rstrip("/"),
+        "apiToken": config.get("api_token") or "",
+        "deviceId": config.get("device_id") or "local-pc",
+    }
+
+
+def build_pairing_qr_html(pairing_info: dict):
+    pairing_json = json.dumps(pairing_info, ensure_ascii=False)
+    pairing_json_for_script = pairing_json.replace("</", "<\\/")
+    backend_url = escape(str(pairing_info.get("backendUrl") or ""))
+    device_id = escape(str(pairing_info.get("deviceId") or "local-pc"))
+    pairing_text = escape(pairing_json)
+
+    return f"""
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Połącz telefon z Jarvis</title>
+  <style>
+    :root {{
+      color-scheme: dark;
+      --bg: #05070d;
+      --panel: #0b1220;
+      --cyan: #00eaff;
+      --blue: #2f7dff;
+      --purple: #8a5cff;
+      --text: #d7f7ff;
+      --muted: #78a7b7;
+      --line: rgba(0, 234, 255, 0.34);
+    }}
+
+    * {{ box-sizing: border-box; }}
+
+    body {{
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background:
+        radial-gradient(circle at 50% 28%, rgba(0, 234, 255, 0.12), transparent 26%),
+        radial-gradient(circle at 74% 70%, rgba(138, 92, 255, 0.1), transparent 24%),
+        linear-gradient(rgba(0, 234, 255, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 234, 255, 0.035) 1px, transparent 1px),
+        var(--bg);
+      background-size: auto, auto, 56px 56px, 56px 56px, auto;
+      color: var(--text);
+      font-family: "Rajdhani", "Segoe UI", system-ui, sans-serif;
+    }}
+
+    .card {{
+      width: min(560px, 100%);
+      padding: 28px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(11, 18, 32, 0.82);
+      box-shadow: 0 0 32px rgba(0, 234, 255, 0.12);
+    }}
+
+    h1 {{
+      margin: 0 0 18px;
+      font-size: clamp(1.35rem, 4vw, 2rem);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }}
+
+    .meta {{
+      display: grid;
+      gap: 10px;
+      margin-bottom: 22px;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }}
+
+    .row {{
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(0, 234, 255, 0.12);
+    }}
+
+    .row strong {{ color: var(--text); word-break: break-all; text-align: right; }}
+
+    #qrcode {{
+      display: grid;
+      place-items: center;
+      min-height: 256px;
+      margin: 20px auto;
+      padding: 18px;
+      border: 1px solid rgba(138, 92, 255, 0.34);
+      border-radius: 8px;
+      background: #07101d;
+    }}
+
+    pre {{
+      overflow: auto;
+      padding: 14px;
+      border: 1px solid rgba(0, 234, 255, 0.18);
+      border-radius: 8px;
+      background: rgba(3, 8, 20, 0.74);
+      color: var(--muted);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }}
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Połącz telefon z Jarvis</h1>
+    <section class="meta" aria-label="Dane połączenia">
+      <div class="row"><span>Backend URL</span><strong>{backend_url}</strong></div>
+      <div class="row"><span>Device ID</span><strong>{device_id}</strong></div>
+    </section>
+    <div id="qrcode" aria-label="Kod QR konfiguracji"></div>
+    <pre>{pairing_text}</pre>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <script>
+    const pairingInfo = {pairing_json_for_script};
+    const target = document.getElementById("qrcode");
+    if (window.QRCode) {{
+      new QRCode(target, {{
+        text: JSON.stringify(pairingInfo),
+        width: 240,
+        height: 240,
+        colorDark: "#d7f7ff",
+        colorLight: "#07101d",
+        correctLevel: QRCode.CorrectLevel.M
+      }});
+    }} else {{
+      target.textContent = "QR niedostępny. Użyj tekstu JSON poniżej.";
+    }}
+  </script>
+</body>
+</html>
+"""
 
 @app.get("/", response_class=HTMLResponse)
 def index():
@@ -1975,15 +2137,25 @@ def get_status():
             "model": "local-model",
         }
     
+
+@app.get("/pairing-info")
+def get_pairing_info_public():
+    # TODO: W produkcji zabezpieczyć krótkim pairing tokenem / czasowym kodem
+    return get_pairing_info_payload()
+
+
+@app.get("/pairing-qr", response_class=HTMLResponse)
+def get_pairing_qr():
+    return build_pairing_qr_html(get_pairing_info_payload())
+
+
 @app.get("/pairing/info")
 def get_pairing_info(_authorized: None = Depends(verify_token)):
-    config = load_config()
-    host_ip = get_local_ip()
-
+    pairing_info = get_pairing_info_payload()
     return {
-        "backend_url": f"http://{host_ip}:8000",
-        "api_token": config.get("api_token") or "",
-        "device_id": "local-pc",
+        "backend_url": pairing_info["backendUrl"],
+        "api_token": pairing_info["apiToken"],
+        "device_id": pairing_info["deviceId"],
     }
 
 

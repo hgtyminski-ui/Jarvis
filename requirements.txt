@@ -11,3 +11,4 @@ requests
 fastapi
 uvicorn
 websockets
+expo-camera
