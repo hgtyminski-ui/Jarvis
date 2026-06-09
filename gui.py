@@ -15,12 +15,14 @@ except ImportError:
     requests = None
 
 from actions import (
+    app_label_from_entry,
     close_app,
     create_note,
     delete_note,
     is_app_running,
     load_app_categories,
     load_apps,
+    load_apps_raw,
     load_notes,
     load_processes,
     open_app,
@@ -28,6 +30,7 @@ from actions import (
     parse_local_action,
 )
 from ai_client import create_client
+from app_scanner import load_existing_apps, merge_discovered_apps, save_apps_json, scan_installed_apps
 from config import CONFIG_PATH, ConfigError, load_config
 from memory import add_assistant_message, add_user_message, create_messages
 from text_utils import normalize_text
@@ -1672,7 +1675,22 @@ class JarvisGUI(ctk.CTk):
             corner_radius=6,
             font=ctk.CTkFont(size=12, weight="bold"),
         )
-        self.apps_refresh_button.grid(row=0, column=1, padx=(8, 8), pady=8, sticky="e")
+        self.apps_scan_button = ctk.CTkButton(
+            header,
+            text="Skanuj aplikacje",
+            command=self.scan_apps_list,
+            width=140,
+            height=28,
+            fg_color="#0b1220",
+            hover_color="#8a5cff",
+            text_color=TEXT,
+            border_width=1,
+            border_color=PURPLE,
+            corner_radius=6,
+            font=ctk.CTkFont(size=12, weight="bold"),
+        )
+        self.apps_scan_button.grid(row=0, column=1, padx=(8, 8), pady=8, sticky="e")
+        self.apps_refresh_button.grid(row=0, column=2, padx=(0, 8), pady=8, sticky="e")
 
         self.apps_container = ctk.CTkScrollableFrame(
             self.apps_panel,
@@ -1686,6 +1704,37 @@ class JarvisGUI(ctk.CTk):
         self.apps_container.grid(row=1, column=0, padx=12, pady=(0, 12), sticky="nsew")
 
         self.apps_panel.grid_remove()
+
+    def scan_apps_list(self):
+        if hasattr(self, "apps_scan_button"):
+            self.apps_scan_button.configure(state="disabled", text="Skanuje...")
+        self.set_status("Skanuje aplikacje")
+        thread = threading.Thread(target=self.scan_apps_list_worker, daemon=True)
+        thread.start()
+
+    def scan_apps_list_worker(self):
+        try:
+            existing_apps = load_existing_apps()
+            discovered_apps = scan_installed_apps()
+            merged_apps = merge_discovered_apps(existing_apps, discovered_apps)
+            save_apps_json(merged_apps)
+            found = len(discovered_apps)
+            added = len(merged_apps) - len(existing_apps)
+            self.after(0, lambda: self.on_apps_scan_finished(found, added))
+        except Exception as e:
+            self.after(0, lambda error=e: self.on_apps_scan_failed(error))
+
+    def on_apps_scan_finished(self, found, added):
+        if hasattr(self, "apps_scan_button"):
+            self.apps_scan_button.configure(state="normal", text="Skanuj aplikacje")
+        self.set_status(f"Znaleziono {found}, dodano {added}")
+        self.add_history(f"{self.assistant_name}: Skan aplikacji gotowy. Znaleziono {found}, dodano {added}.")
+        self.refresh_apps_list()
+
+    def on_apps_scan_failed(self, error):
+        if hasattr(self, "apps_scan_button"):
+            self.apps_scan_button.configure(state="normal", text="Skanuj aplikacje")
+        self.set_error_status(error)
 
     def toggle_apps_panel(self):
         self.show_view("apps")
@@ -1724,6 +1773,7 @@ class JarvisGUI(ctk.CTk):
 
             self.app_action_buttons = {}
             apps = load_apps()
+            raw_apps = load_apps_raw()
             if self.is_phone_control_mode():
                 apps = dict(apps)
                 for phone_target in PHONE_APP_TARGETS:
@@ -1781,7 +1831,8 @@ class JarvisGUI(ctk.CTk):
             )
 
             for app_row_index, app_key in enumerate(app_names, start=2):
-                self.add_app_row(category_frame, app_row_index, app_key, app_key, processes)
+                display_name = app_label_from_entry(raw_apps.get(app_key), app_key)
+                self.add_app_row(category_frame, app_row_index, app_key, display_name, processes)
 
     def add_app_row(self, parent, row, app_key, display_name, processes):
         app_key = normalize_text(app_key)

@@ -14,14 +14,17 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from actions import (
+    app_label_from_entry,
     close_app,
     create_note,
     delete_note,
     is_app_running,
     load_apps,
+    load_apps_raw,
     load_notes,
     open_app,
 )
+from app_scanner import clean_apps_json, load_existing_apps, merge_discovered_apps, save_apps_json, scan_installed_apps
 from config import CONFIG_PATH, load_config
 from notes_manager import NOTES_PATH
 
@@ -717,7 +720,10 @@ INDEX_HTML = r"""
       <main class="two-col">
         <section class="panel">
           <h2 class="panel-title">APLIKACJE</h2>
-          <button id="refreshAppsButton" class="primary" type="button">Odswiez aplikacje</button>
+          <div class="button-row">
+            <button id="scanAppsButton" class="primary" type="button">Skanuj aplikacje</button>
+            <button id="refreshAppsButton" type="button">Odswiez aplikacje</button>
+          </div>
           <div id="appsList" class="list" style="margin-top: 12px;"></div>
         </section>
         <section class="panel">
@@ -1491,7 +1497,7 @@ INDEX_HTML = r"""
           row.className = "list-row app-row";
           const name = document.createElement("div");
           const title = document.createElement("strong");
-          title.textContent = app.name;
+          title.textContent = app.label || app.name;
           const state = document.createElement("span");
           state.className = "subtle";
           state.textContent = controlMode === "phone" ? "kolejka telefonu" : (app.running ? "uruchomiona" : "zamknieta");
@@ -1566,6 +1572,22 @@ INDEX_HTML = r"""
         });
         const data = await readJson(response);
         appsInfo.textContent = data.response || "OK";
+        await loadApps();
+      } catch (error) {
+        showError(appsInfo, error);
+      }
+    }
+
+    async function scanApps() {
+      appsInfo.textContent = "Skanuje aplikacje...";
+      try {
+        const response = await fetch("/apps/scan", {
+          method: "POST",
+          headers: authHeaders()
+        });
+        const data = await readJson(response);
+        appsInfo.textContent = `Znaleziono ${data.found ?? 0}, dodano ${data.added ?? 0}`;
+        addHistory("APPS", appsInfo.textContent, "ok");
         await loadApps();
       } catch (error) {
         showError(appsInfo, error);
@@ -1720,6 +1742,7 @@ INDEX_HTML = r"""
     document.getElementById("quickStatusButton").addEventListener("click", checkStatus);
     document.getElementById("hubStatusButton").addEventListener("click", checkHubStatus);
     document.getElementById("pairingButton").addEventListener("click", () => window.open("/pairing-qr", "_blank"));
+    document.getElementById("scanAppsButton").addEventListener("click", scanApps);
     document.getElementById("refreshAppsButton").addEventListener("click", loadApps);
     document.getElementById("refreshNotesButton").addEventListener("click", loadNotes);
     document.getElementById("newNoteButton").addEventListener("click", clearNoteEditor);
@@ -2410,11 +2433,37 @@ async def process_text(request: ProcessTextRequest, _authorized: None = Depends(
 
 @app.get("/apps")
 def get_apps(_authorized: None = Depends(verify_token)):
+    raw_apps = load_apps_raw()
     apps = [
-        {"name": name, "running": is_app_running(name)}
+        {"name": name, "label": app_label_from_entry(raw_apps.get(name), name), "running": is_app_running(name)}
         for name in sorted(load_apps().keys())
     ]
     return {"apps": apps}
+
+
+@app.post("/apps/scan")
+def scan_apps(_authorized: None = Depends(verify_token)):
+    existing_apps = load_existing_apps()
+    discovered_apps = scan_installed_apps()
+    merged_apps = merge_discovered_apps(existing_apps, discovered_apps)
+    save_apps_json(merged_apps)
+
+    return {
+        "status": "ok",
+        "found": len(discovered_apps),
+        "added": len(merged_apps) - len(existing_apps),
+    }
+
+
+@app.post("/apps/clean")
+def clean_apps(_authorized: None = Depends(verify_token)):
+    result = clean_apps_json()
+    return {
+        "status": "ok",
+        "before": result["before"],
+        "after": result["after"],
+        "removed": result["removed"],
+    }
 
 
 @app.post("/apps/toggle")

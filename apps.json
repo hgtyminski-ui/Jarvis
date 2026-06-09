@@ -12,5 +12,134 @@
   "forza horizon 5": "C:\\Users\\User\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Steam\\Forza Horizon 5.url",
   "phasmophobia": "C:\\Users\\User\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Steam\\Phasmophobia.url",
   "whatsapp": "C:\\Users\\User\\Desktop\\WhatsApp - Shortcut.lnk",
-  "settings": "ms-settings:"
+  "settings": "ms-settings:",
+  "msedge": {
+    "label": "msedge",
+    "launch_path": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+    "type": "exe",
+    "discovered": true,
+    "hidden": false,
+    "path": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+    "process": "msedge.exe",
+    "key": "msedge",
+    "name": "msedge"
+  },
+  "adobe_acrobat": {
+    "label": "Adobe Acrobat",
+    "launch_path": "C:\\Users\\Public\\Desktop\\Adobe Acrobat.lnk",
+    "type": "lnk",
+    "discovered": true,
+    "hidden": false,
+    "target_path": "C:\\Program Files\\Adobe\\Acrobat DC\\Acrobat\\Acrobat.exe",
+    "process": "Acrobat.exe",
+    "key": "adobe_acrobat",
+    "name": "adobe_acrobat"
+  },
+  "feather_launcher": {
+    "label": "Feather Launcher",
+    "launch_path": "C:\\Users\\User\\Desktop\\Feather Launcher.lnk",
+    "type": "lnk",
+    "discovered": true,
+    "hidden": false,
+    "target_path": "C:\\Users\\User\\AppData\\Local\\Programs\\feather\\Feather Launcher.exe",
+    "process": "Feather Launcher.exe",
+    "key": "feather_launcher",
+    "name": "feather_launcher"
+  },
+  "lm_studio": {
+    "label": "LM Studio",
+    "launch_path": "C:\\Users\\User\\Desktop\\LM Studio.lnk",
+    "type": "lnk",
+    "discovered": true,
+    "hidden": false,
+    "target_path": "C:\\Users\\User\\AppData\\Local\\Programs\\LM Studio\\LM Studio.exe",
+    "process": "LM Studio.exe",
+    "key": "lm_studio",
+    "name": "lm_studio"
+  },
+  "ubisoft_connect": {
+    "label": "Ubisoft Connect",
+    "launch_path": "C:\\Users\\User\\Desktop\\Ubisoft Connect.lnk",
+    "type": "lnk",
+    "discovered": true,
+    "hidden": false,
+    "target_path": "C:\\Program Files (x86)\\Ubisoft\\Ubisoft Game Launcher\\UbisoftConnect.exe",
+    "process": "UbisoftConnect.exe",
+    "key": "ubisoft_connect",
+    "name": "ubisoft_connect"
+  },
+  "windhawk": {
+    "label": "Windhawk",
+    "launch_path": "C:\\Users\\Public\\Desktop\\Windhawk.lnk",
+    "type": "lnk",
+    "discovered": true,
+    "hidden": false,
+    "target_path": "C:\\Users\\User\\Documents\\Windhawk\\windhawk.exe",
+    "process": "windhawk.exe",
+    "key": "windhawk",
+    "name": "windhawk"
+  },
+  "forza_horizon_5": {
+    "label": "Forza Horizon 5",
+    "launch_path": "C:\\Users\\User\\Desktop\\Forza Horizon 5.url",
+    "type": "uri",
+    "discovered": true,
+    "hidden": false,
+    "key": "forza_horizon_5",
+    "name": "forza_horizon_5"
+  },
+  "mscopilot": {
+    "label": "mscopilot",
+    "launch_path": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\148.0.3967.96\\mscopilot.exe",
+    "type": "exe",
+    "discovered": true,
+    "hidden": false,
+    "path": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\148.0.3967.96\\mscopilot.exe",
+    "process": "mscopilot.exe",
+    "key": "mscopilot",
+    "name": "mscopilot"
+  },
+  "ten_komputer_skrot": {
+    "label": "Ten komputer — skrót",
+    "launch_path": "C:\\Users\\User\\Desktop\\Ten komputer — skrót .lnk",
+    "type": "lnk",
+    "discovered": true,
+    "hidden": false,
+    "key": "ten_komputer_skrot",
+    "name": "ten_komputer_skrot"
+  },
+  "rainmeter": {
+    "label": "Rainmeter",
+    "type": "exe",
+    "discovered": false,
+    "hidden": false,
+    "manual": true,
+    "key": "rainmeter",
+    "name": "rainmeter",
+    "launch_path": "C:/Users/User/Documents/Rainmeter.exe",
+    "path": "C:/Users/User/Documents/Rainmeter.exe",
+    "process": "Rainmeter.exe"
+  },
+  "microsoft_edge": {
+    "label": "Microsoft Edge",
+    "type": "exe",
+    "discovered": true,
+    "hidden": false,
+    "launch_path": "C:\\Users\\User\\AppData\\Local\\Microsoft\\WindowsApps\\ActionsMcpHost.exe",
+    "path": "C:\\Users\\User\\AppData\\Local\\Microsoft\\WindowsApps\\ActionsMcpHost.exe",
+    "process": "ActionsMcpHost.exe",
+    "key": "microsoft_edge",
+    "name": "microsoft_edge"
+  },
+  "minecraft_launcher": {
+    "label": "Minecraft Launcher",
+    "type": "exe",
+    "discovered": true,
+    "hidden": false,
+    "launch_path": "C:\\Users\\User\\AppData\\Roaming\\.minecraft\\jre\\zulu25.32.21-ca-jre25.0.2-win_x64\\bin\\jabswitch.exe",
+    "path": "C:\\Users\\User\\AppData\\Roaming\\.minecraft\\jre\\zulu25.32.21-ca-jre25.0.2-win_x64\\bin\\jabswitch.exe",
+    "process": "jabswitch.exe",
+    "key": "minecraft_launcher",
+    "name": "minecraft_launcher"
+  }
 }

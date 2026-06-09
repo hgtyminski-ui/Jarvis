@@ -374,6 +374,22 @@ def is_uri(command):
 
 
 def load_apps():
+    apps = load_apps_raw()
+    normalized_apps = {}
+    for name, entry in apps.items():
+        if not isinstance(name, str):
+            continue
+        if isinstance(entry, dict) and entry.get("hidden") is True:
+            continue
+
+        command = app_command_from_entry(entry)
+        if command:
+            normalized_apps[str(name).lower()] = command
+
+    return normalized_apps
+
+
+def load_apps_raw():
     if not APPS_PATH.exists():
         return {}
 
@@ -386,11 +402,54 @@ def load_apps():
     if not isinstance(apps, dict):
         return {}
 
-    return {
-        str(name).lower(): command
-        for name, command in apps.items()
-        if isinstance(name, str) and isinstance(command, str) and command
-    }
+    return apps
+
+
+def app_command_from_entry(entry):
+    if isinstance(entry, str):
+        return entry
+    if not isinstance(entry, dict):
+        return ""
+    return str(entry.get("command") or entry.get("launch_path") or entry.get("path") or entry.get("uri") or "").strip()
+
+
+def app_process_from_entry(entry):
+    if isinstance(entry, dict):
+        process_name = str(entry.get("process") or "").strip()
+        if process_name:
+            return process_name
+
+        for field in ["target_path", "path", "launch_path"]:
+            value = str(entry.get(field) or "")
+            if Path(value).suffix.lower() == ".exe":
+                return Path(value).name
+    elif isinstance(entry, str) and Path(entry).suffix.lower() == ".exe":
+        return Path(entry).name
+
+    return ""
+
+
+def app_label_from_entry(entry, fallback):
+    if isinstance(entry, dict):
+        label = str(entry.get("label") or "").strip()
+        if label:
+            return label
+    return str(fallback)
+
+
+def resolve_app_key(target, apps):
+    if target in apps:
+        return target
+
+    underscore_target = target.replace(" ", "_")
+    if underscore_target in apps:
+        return underscore_target
+
+    space_target = target.replace("_", " ")
+    if space_target in apps:
+        return space_target
+
+    return target
 
 
 def load_processes():
@@ -444,11 +503,26 @@ def load_app_categories():
 
 def open_app(target):
     target = resolve_alias(target)
+    raw_apps = load_apps_raw()
     apps = load_apps()
+    target = resolve_app_key(target, apps)
+    raw_entry = raw_apps.get(resolve_app_key(target, raw_apps))
     command = apps.get(target)
 
     if not command:
         return "unknown"
+
+    if isinstance(raw_entry, dict) and raw_entry.get("type") == "command":
+        arguments = str(raw_entry.get("arguments") or "").strip()
+        full_command = f"{command} {arguments}".strip()
+        subprocess.Popen(
+            full_command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            shell=True,
+        )
+        return "opened"
 
     extension = Path(command).suffix.lower()
     if extension in [".url", ".lnk"] or is_uri(command):
@@ -471,6 +545,10 @@ def close_app(target):
 
     processes = load_processes()
     process_name = processes.get(target)
+    if not process_name:
+        raw_apps = load_apps_raw()
+        target = resolve_app_key(target, raw_apps)
+        process_name = app_process_from_entry(raw_apps.get(target))
 
     if not process_name:
         return "unknown"
@@ -548,6 +626,10 @@ def is_app_running(target):
 
     processes = load_processes()
     process_name = processes.get(target)
+    if not process_name:
+        raw_apps = load_apps_raw()
+        target = resolve_app_key(target, raw_apps)
+        process_name = app_process_from_entry(raw_apps.get(target))
 
     if not process_name:
         return False
