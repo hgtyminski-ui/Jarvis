@@ -1,4 +1,5 @@
 ﻿import json
+import os
 import re
 import subprocess
 import sys
@@ -325,7 +326,10 @@ class JarvisControlCenter(ctk.CTk):
         self.apps_per_page = 50
         self.scan_app_buttons = []
         config = load_config()
-        runtime_mode = str(config.get("runtime_mode") or "local_full")
+        runtime_override = os.environ.get("JARVIS_RUNTIME_MODE")
+        if os.environ.get("JARVIS_FORCE_CLIENT") == "1":
+            runtime_override = "client"
+        runtime_mode = str(runtime_override or config.get("runtime_mode") or "local_full")
         if runtime_mode not in {"local_full", "client", "server"}:
             runtime_mode = "local_full"
         remote_server = config.get("remote_server") if isinstance(config.get("remote_server"), dict) else {}
@@ -388,7 +392,14 @@ class JarvisControlCenter(ctk.CTk):
 
         tabs = ctk.CTkFrame(header, fg_color="transparent")
         tabs.grid(row=1, column=0, sticky="w", pady=self.hud_pad((12, 0)))
-        for index, tab in enumerate(["CHAT", "APLIKACJE", "NOTATKI", "USTAWIENIA", "CONTROL"]):
+        tab_names = ["CHAT", "NOTATKI", "USTAWIENIA", "CONTROL"] if self.is_client_mode() else [
+            "CHAT",
+            "APLIKACJE",
+            "NOTATKI",
+            "USTAWIENIA",
+            "CONTROL",
+        ]
+        for index, tab in enumerate(tab_names):
             key = tab.lower()
             button = self.make_button(tabs, tab, lambda name=key: self.switch_tab(name), width=120, height=30)
             button.grid(row=0, column=index, padx=self.hud_pad((0, 8)), sticky="w")
@@ -417,6 +428,8 @@ class JarvisControlCenter(ctk.CTk):
         self.log_panel.grid_columnconfigure(0, weight=1)
         self.build_log_panel()
         self.apply_panel_visibility()
+        if self.client_needs_connection_setup():
+            self.after(100, self.show_client_connection_setup)
 
     def scale_text(self, value):
         scale = getattr(self, "last_valid_text_scale", 1.0)
@@ -595,6 +608,24 @@ class JarvisControlCenter(ctk.CTk):
         self.views["chat"] = self.create_chat_view()
         self.views["notatki"] = self.create_notes_view()
 
+    def client_needs_connection_setup(self):
+        if not self.is_client_mode():
+            return False
+        return not self.remote_server_url_is_configured() or not self.effective_token()
+
+    def remote_server_url_is_configured(self):
+        url = self.remote_server_url.get().strip().rstrip("/")
+        placeholders = {
+            "",
+            "https://twoj-adres-serwera",
+            "https://YOUR-JARVIS-SERVER",
+        }
+        return url not in placeholders
+
+    def show_client_connection_setup(self):
+        self.switch_tab("ustawienia")
+        self.log("Tryb Client: skonfiguruj Server URL i API Token.")
+
     def switch_tab(self, tab):
         if tab not in self.views:
             tab = "chat"
@@ -624,23 +655,37 @@ class JarvisControlCenter(ctk.CTk):
         for column in range(3):
             grid.grid_columnconfigure(column, weight=1)
 
-        ctk.CTkLabel(
-            grid,
-            text="URUCHAMIANIE",
-            text_color=CYAN,
-            font=self.ui_font(10, "bold"),
-        ).grid(row=0, column=0, columnspan=3, sticky="w", padx=self.scale_hud(8), pady=self.hud_pad((2, 4)))
-        ctk.CTkLabel(
-            grid,
-            text="NARZEDZIA",
-            text_color=CYAN,
-            font=self.ui_font(10, "bold"),
-        ).grid(row=2, column=0, columnspan=3, sticky="w", padx=self.scale_hud(8), pady=self.hud_pad((14, 4)))
+        if self.is_client_mode():
+            ctk.CTkLabel(
+                grid,
+                text="JARVIS DESKTOP CLIENT",
+                text_color=CYAN,
+                font=self.ui_font(13, "bold"),
+            ).grid(row=0, column=0, columnspan=3, sticky="w", padx=self.scale_hud(8), pady=self.hud_pad((2, 4)))
+            ctk.CTkLabel(
+                grid,
+                text="Ta aplikacja laczy sie z Jarvis Server. Nie uruchamia lokalnych serwerow.",
+                text_color=MUTED,
+                font=self.ui_font(10),
+            ).grid(row=1, column=0, columnspan=3, sticky="w", padx=self.scale_hud(8), pady=self.hud_pad((0, 10)))
+        else:
+            ctk.CTkLabel(
+                grid,
+                text="URUCHAMIANIE",
+                text_color=CYAN,
+                font=self.ui_font(10, "bold"),
+            ).grid(row=0, column=0, columnspan=3, sticky="w", padx=self.scale_hud(8), pady=self.hud_pad((2, 4)))
+            ctk.CTkLabel(
+                grid,
+                text="NARZEDZIA",
+                text_color=CYAN,
+                font=self.ui_font(10, "bold"),
+            ).grid(row=2, column=0, columnspan=3, sticky="w", padx=self.scale_hud(8), pady=self.hud_pad((14, 4)))
 
         if self.is_client_mode():
             actions = [
                 ("Test polaczenia", self.test_connection, CYAN),
-                ("Polacz telefon", self.open_pairing, PURPLE),
+                ("Zapisz polaczenie", self.save_settings, PURPLE),
                 ("Odswiez status", self.refresh_status, CYAN),
             ]
         else:
@@ -654,7 +699,8 @@ class JarvisControlCenter(ctk.CTk):
             ]
         for index, (label, command, color) in enumerate(actions):
             button = self.make_button(grid, label, command, border_color=color, width=210, height=42)
-            button.grid(row=(index // 3) * 2 + 1, column=index % 3, padx=self.scale_hud(8), pady=self.scale_hud(6), sticky="ew")
+            action_base_row = 2 if self.is_client_mode() else 1
+            button.grid(row=(index // 3) * 2 + action_base_row, column=index % 3, padx=self.scale_hud(8), pady=self.scale_hud(6), sticky="ew")
             if label == "Skanuj aplikacje":
                 self.scan_apps_button = button
                 self.scan_app_buttons.append(button)
@@ -709,6 +755,22 @@ class JarvisControlCenter(ctk.CTk):
         frame = self.make_panel(self.content, "APLIKACJE")
         frame.grid_columnconfigure(0, weight=1)
         frame.grid_rowconfigure(4, weight=1)
+
+        if self.is_client_mode():
+            ctk.CTkLabel(
+                frame,
+                text="Sterowanie PC wymaga Local Agent.",
+                text_color=TEXT,
+                font=self.ui_font(14, "bold"),
+            ).grid(row=1, column=0, sticky="n", padx=self.scale_hud(20), pady=self.scale_hud(40))
+            ctk.CTkLabel(
+                frame,
+                text="Jarvis Desktop Client laczy sie z Jarvis Server i nie uruchamia lokalnych aplikacji.",
+                text_color=MUTED,
+                font=self.ui_font(10),
+                wraplength=self.scale_hud(520),
+            ).grid(row=2, column=0, sticky="n", padx=self.scale_hud(20), pady=self.scale_hud(8))
+            return frame
 
         tools = ctk.CTkFrame(frame, fg_color="transparent")
         tools.grid(row=1, column=0, sticky="ew", padx=self.scale_hud(14), pady=self.hud_pad((4, 10)))
@@ -987,21 +1049,38 @@ class JarvisControlCenter(ctk.CTk):
         row = 0
         row = self.add_settings_section(row, "TRYB DZIALANIA")
         row = self.add_runtime_mode_row(row)
-        row = self.add_settings_section(row, "POŁĄCZENIE")
-        row = self.add_setting_entry(row, "Backend URL", self.backend_url)
-        row = self.add_setting_entry(row, "API Token", self.api_token, show="*")
-        row = self.add_setting_entry(row, "Device ID", self.device_id)
-        row = self.add_setting_entry(row, "Remote Server URL", self.remote_server_url)
-        row = self.add_setting_entry(row, "Remote API Token", self.remote_api_token, show="*")
-        row = self.add_setting_entry(row, "Remote Device ID", self.remote_device_id)
-        row = self.add_settings_buttons(
-            row,
-            [
-                ("Test połączenia", self.test_connection, CYAN),
-                ("Zapisz połączenie", self.save_settings, PURPLE),
-                ("Połącz telefon / QR", self.open_pairing, PURPLE),
-            ],
-        )
+        if self.is_client_mode():
+            row = self.add_settings_section(row, "POŁĄCZENIE Z SERWEREM")
+            row = self.add_settings_info(
+                row,
+                "Ta aplikacja łączy się z Jarvis Server. Nie uruchamia lokalnych serwerów.",
+            )
+            row = self.add_setting_entry(row, "Server URL", self.remote_server_url)
+            row = self.add_setting_entry(row, "API Token", self.remote_api_token, show="*")
+            row = self.add_setting_entry(row, "Device ID", self.remote_device_id)
+            row = self.add_settings_buttons(
+                row,
+                [
+                    ("Test połączenia", self.test_connection, CYAN),
+                    ("Zapisz i połącz", self.save_settings, PURPLE),
+                ],
+            )
+        else:
+            row = self.add_settings_section(row, "POŁĄCZENIE")
+            row = self.add_setting_entry(row, "Backend URL", self.backend_url)
+            row = self.add_setting_entry(row, "API Token", self.api_token, show="*")
+            row = self.add_setting_entry(row, "Device ID", self.device_id)
+            row = self.add_setting_entry(row, "Remote Server URL", self.remote_server_url)
+            row = self.add_setting_entry(row, "Remote API Token", self.remote_api_token, show="*")
+            row = self.add_setting_entry(row, "Remote Device ID", self.remote_device_id)
+            row = self.add_settings_buttons(
+                row,
+                [
+                    ("Test połączenia", self.test_connection, CYAN),
+                    ("Zapisz połączenie", self.save_settings, PURPLE),
+                    ("Połącz telefon / QR", self.open_pairing, PURPLE),
+                ],
+            )
 
         row = self.add_settings_section(row, "WYGLĄD")
         row = self.add_scale_row(row, "Text Scale", self.text_scale, 0.05)
@@ -1036,6 +1115,18 @@ class JarvisControlCenter(ctk.CTk):
             text_color=CYAN,
             font=self.ui_font(12, "bold"),
         ).grid(row=row, column=0, sticky="w", padx=self.scale_hud(12), pady=self.hud_pad((14, 8)))
+        return row + 1
+
+    def add_settings_info(self, row, text):
+        ctk.CTkLabel(
+            self.settings_grid,
+            text=text,
+            text_color=MUTED,
+            font=self.ui_font(10),
+            anchor="w",
+            justify="left",
+            wraplength=self.scale_hud(680),
+        ).grid(row=row, column=0, sticky="ew", padx=self.scale_hud(12), pady=self.hud_pad((0, 10)))
         return row + 1
 
     def add_setting_entry(self, row, label, variable, show=None):
@@ -1102,7 +1193,7 @@ class JarvisControlCenter(ctk.CTk):
 
     def effective_base_url(self):
         if self.is_client_mode():
-            return self.remote_server_url.get().strip().rstrip("/")
+            return self.remote_server_url.get().strip().rstrip("/") if self.remote_server_url_is_configured() else ""
         return self.backend_url.get().strip().rstrip("/") or "http://127.0.0.1:8000"
 
     def effective_token(self):
@@ -1759,13 +1850,22 @@ class JarvisControlCenter(ctk.CTk):
         threading.Thread(target=self._refresh_status_worker, daemon=True).start()
 
     def _refresh_status_worker(self):
-        statuses = {
-            "LM Studio": self.check_lm_studio(),
-            "Processor": self.check_processor(),
-            "Backend": self.check_backend(),
-            "Agent": self.check_agent(),
-            "Telefon": self.check_phone(),
-        }
+        if self.is_client_mode():
+            statuses = {
+                "LM Studio": ("Unknown", "Nie dotyczy"),
+                "Processor": ("Unknown", "Remote"),
+                "Backend": self.check_backend(),
+                "Agent": ("Unknown", "Local Agent wymagany do PC"),
+                "Telefon": ("Unknown", "Nie dotyczy"),
+            }
+        else:
+            statuses = {
+                "LM Studio": self.check_lm_studio(),
+                "Processor": self.check_processor(),
+                "Backend": self.check_backend(),
+                "Agent": self.check_agent(),
+                "Telefon": self.check_phone(),
+            }
         config = load_config()
         self.after(0, lambda: self.apply_statuses(statuses, config))
 

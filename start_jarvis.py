@@ -112,18 +112,22 @@ def main():
     LOGS_DIR.mkdir(exist_ok=True)
     runtime_mode = load_runtime_mode()
 
-    if check_lm_studio():
-        log("LM Studio dziala")
-    else:
-        log("LM Studio nie dziala. Uruchom Local Server w LM Studio.")
-
     log(f"Runtime mode: {runtime_mode}")
     if runtime_mode == "client":
+        log("Client mode: uruchamiam tylko Jarvis Desktop Client.")
         start_control_center()
     elif runtime_mode == "server":
+        if check_lm_studio():
+            log("LM Studio dziala")
+        else:
+            log("LM Studio nie dziala. Uruchom Local Server w LM Studio.")
         start_backend()
         start_processor()
     else:
+        if check_lm_studio():
+            log("LM Studio dziala")
+        else:
+            log("LM Studio nie dziala. Uruchom Local Server w LM Studio.")
         start_backend()
         start_processor()
         start_agent()

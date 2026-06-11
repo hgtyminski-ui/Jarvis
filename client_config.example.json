@@ -1,0 +1,12 @@
+{
+  "runtime_mode": "client",
+  "remote_server": {
+    "base_url": "https://YOUR-JARVIS-SERVER",
+    "api_token": "",
+    "device_id": "client-pc"
+  },
+  "text_scale": 1.0,
+  "hud_scale": 1.15,
+  "show_system_status": true,
+  "show_console_log": true
+}

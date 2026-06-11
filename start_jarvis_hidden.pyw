@@ -115,18 +115,22 @@ def main():
     python_cmd = python_executable()
     runtime_mode = load_runtime_mode()
 
-    if check_lm_studio():
-        write_launcher_log("LM Studio dziala")
-    else:
-        write_launcher_log("LM Studio nie dziala. Uruchom Local Server w LM Studio.")
-
     write_launcher_log(f"Runtime mode: {runtime_mode}")
     if runtime_mode == "client":
+        write_launcher_log("Client mode: uruchamiam tylko Jarvis Desktop Client.")
         start_control_center(python_cmd)
     elif runtime_mode == "server":
+        if check_lm_studio():
+            write_launcher_log("LM Studio dziala")
+        else:
+            write_launcher_log("LM Studio nie dziala. Uruchom Local Server w LM Studio.")
         start_backend(python_cmd)
         start_processor(python_cmd)
     else:
+        if check_lm_studio():
+            write_launcher_log("LM Studio dziala")
+        else:
+            write_launcher_log("LM Studio nie dziala. Uruchom Local Server w LM Studio.")
         start_backend(python_cmd)
         start_processor(python_cmd)
         start_agent(python_cmd)
