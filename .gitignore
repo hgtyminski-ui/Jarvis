@@ -1,5 +1,6 @@
 # === SECRETS & CONFIG ===
 config.json
+users.json
 
 # === PYTHON ===
 __pycache__/

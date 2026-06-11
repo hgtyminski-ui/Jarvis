@@ -13,6 +13,40 @@
   "phasmophobia": "C:\\Users\\User\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Steam\\Phasmophobia.url",
   "whatsapp": "C:\\Users\\User\\Desktop\\WhatsApp - Shortcut.lnk",
   "settings": "ms-settings:",
+  "rainmeter": {
+    "label": "Rainmeter",
+    "type": "exe",
+    "discovered": false,
+    "hidden": false,
+    "manual": true,
+    "key": "rainmeter",
+    "name": "rainmeter",
+    "launch_path": "C:/Users/User/Documents/Rainmeter.exe",
+    "path": "C:/Users/User/Documents/Rainmeter.exe",
+    "process": "Rainmeter.exe"
+  },
+  "microsoft_edge": {
+    "label": "Microsoft Edge",
+    "type": "exe",
+    "discovered": true,
+    "hidden": false,
+    "launch_path": "C:\\Users\\User\\AppData\\Local\\Microsoft\\WindowsApps\\ActionsMcpHost.exe",
+    "path": "C:\\Users\\User\\AppData\\Local\\Microsoft\\WindowsApps\\ActionsMcpHost.exe",
+    "process": "ActionsMcpHost.exe",
+    "key": "microsoft_edge",
+    "name": "microsoft_edge"
+  },
+  "minecraft_launcher": {
+    "label": "Minecraft Launcher",
+    "type": "exe",
+    "discovered": true,
+    "hidden": false,
+    "launch_path": "C:\\Users\\User\\AppData\\Roaming\\.minecraft\\jre\\zulu25.32.21-ca-jre25.0.2-win_x64\\bin\\jabswitch.exe",
+    "path": "C:\\Users\\User\\AppData\\Roaming\\.minecraft\\jre\\zulu25.32.21-ca-jre25.0.2-win_x64\\bin\\jabswitch.exe",
+    "process": "jabswitch.exe",
+    "key": "minecraft_launcher",
+    "name": "minecraft_launcher"
+  },
   "msedge": {
     "label": "msedge",
     "launch_path": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
@@ -101,45 +135,11 @@
   },
   "ten_komputer_skrot": {
     "label": "Ten komputer — skrót",
-    "launch_path": "C:\\Users\\User\\Desktop\\Ten komputer — skrót .lnk",
     "type": "lnk",
     "discovered": true,
     "hidden": false,
+    "launch_path": "C:\\Users\\User\\Desktop\\Ten komputer — skrót .lnk",
     "key": "ten_komputer_skrot",
     "name": "ten_komputer_skrot"
-  },
-  "rainmeter": {
-    "label": "Rainmeter",
-    "type": "exe",
-    "discovered": false,
-    "hidden": false,
-    "manual": true,
-    "key": "rainmeter",
-    "name": "rainmeter",
-    "launch_path": "C:/Users/User/Documents/Rainmeter.exe",
-    "path": "C:/Users/User/Documents/Rainmeter.exe",
-    "process": "Rainmeter.exe"
-  },
-  "microsoft_edge": {
-    "label": "Microsoft Edge",
-    "type": "exe",
-    "discovered": true,
-    "hidden": false,
-    "launch_path": "C:\\Users\\User\\AppData\\Local\\Microsoft\\WindowsApps\\ActionsMcpHost.exe",
-    "path": "C:\\Users\\User\\AppData\\Local\\Microsoft\\WindowsApps\\ActionsMcpHost.exe",
-    "process": "ActionsMcpHost.exe",
-    "key": "microsoft_edge",
-    "name": "microsoft_edge"
-  },
-  "minecraft_launcher": {
-    "label": "Minecraft Launcher",
-    "type": "exe",
-    "discovered": true,
-    "hidden": false,
-    "launch_path": "C:\\Users\\User\\AppData\\Roaming\\.minecraft\\jre\\zulu25.32.21-ca-jre25.0.2-win_x64\\bin\\jabswitch.exe",
-    "path": "C:\\Users\\User\\AppData\\Roaming\\.minecraft\\jre\\zulu25.32.21-ca-jre25.0.2-win_x64\\bin\\jabswitch.exe",
-    "process": "jabswitch.exe",
-    "key": "minecraft_launcher",
-    "name": "minecraft_launcher"
   }
 }

@@ -41,6 +41,7 @@ last_phone_seen = None
 last_phone_command = None
 connected_agents = {}
 connected_agents_lock = Lock()
+USERS_PATH = Path(__file__).resolve().parent / "users.json"
 
 SAFE_SETTINGS = [
     "voice_enabled",
@@ -1938,14 +1939,49 @@ def clear_conversation_memory():
         runtime = None
 
 
-def verify_token(x_jarvis_token: str | None = Header(default=None)):
+def load_users():
+    if not USERS_PATH.exists():
+        return {}
     try:
-        expected_token = load_config().get("api_token")
-    except Exception:
-        expected_token = None
+        users = json.loads(USERS_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return users if isinstance(users, dict) else {}
 
-    if not expected_token or x_jarvis_token != expected_token:
+
+def resolve_user_from_token(token: str | None):
+    if not token:
+        return None
+
+    for user_id, user_data in load_users().items():
+        if not isinstance(user_data, dict):
+            continue
+        if str(user_data.get("token") or "") == token:
+            return {
+                "user_id": str(user_id),
+                "display_name": str(user_data.get("display_name") or user_id),
+            }
+
+    try:
+        config_token = load_config().get("api_token")
+    except Exception:
+        config_token = None
+
+    if config_token and token == config_token:
+        return {"user_id": "hubert", "display_name": "Hubert"}
+
+    return None
+
+
+def get_current_user(x_jarvis_token: str | None = Header(default=None, alias="X-Jarvis-Token")):
+    user = resolve_user_from_token(x_jarvis_token)
+    if user is None:
         raise HTTPException(status_code=401, detail="Unauthorized")
+    return user
+
+
+def verify_token(current_user: dict = Depends(get_current_user)):
+    return current_user
 
 
 def note_path_from_id(note_id: str) -> Path:
@@ -2252,7 +2288,7 @@ def command(request: CommandRequest, _authorized: None = Depends(verify_token)):
 
 
 @app.post("/process-text")
-async def process_text(request: ProcessTextRequest, _authorized: None = Depends(verify_token)):
+async def process_text(request: ProcessTextRequest, _authorized: dict = Depends(verify_token)):
     text = request.text.strip()
     if not text:
         raise HTTPException(status_code=400, detail="Text is required")
@@ -2329,7 +2365,7 @@ async def process_text(request: ProcessTextRequest, _authorized: None = Depends(
             }
 
         try:
-            result = create_note(content, title)
+            result = create_note(content, title, user_id=_authorized.get("user_id"))
         except Exception as e:
             return {
                 "status": "error",
@@ -2351,7 +2387,7 @@ async def process_text(request: ProcessTextRequest, _authorized: None = Depends(
         }
 
     if action == "list_notes":
-        notes = load_notes()
+        notes = load_notes(user_id=_authorized.get("user_id"))
         if not notes:
             response = "Nie masz zapisanych notatek."
         else:
@@ -2551,14 +2587,14 @@ def get_phone_status(_authorized: None = Depends(verify_token)):
 
 
 @app.get("/notes")
-def get_notes(_authorized: None = Depends(verify_token)):
-    return {"notes": [note_to_public(note) for note in load_notes()]}
+def get_notes(current_user: dict = Depends(get_current_user)):
+    return {"notes": [note_to_public(note) for note in load_notes(user_id=current_user.get("user_id"))]}
 
 
 @app.get("/notes/{note_id}")
-def get_note(note_id: str, _authorized: None = Depends(verify_token)):
+def get_note(note_id: str, current_user: dict = Depends(get_current_user)):
     note_path = note_path_from_id(note_id)
-    for note in load_notes():
+    for note in load_notes(user_id=current_user.get("user_id")):
         if Path(str(note.get("path") or "")).name == note_path.name:
             public_note = note_to_public(note)
             public_note["content"] = str(note.get("content") or "")
@@ -2568,17 +2604,17 @@ def get_note(note_id: str, _authorized: None = Depends(verify_token)):
 
 
 @app.post("/notes")
-def post_note(request: NoteCreateRequest, _authorized: None = Depends(verify_token)):
-    result = create_note(request.content, request.title)
+def post_note(request: NoteCreateRequest, current_user: dict = Depends(get_current_user)):
+    result = create_note(request.content, request.title, user_id=current_user.get("user_id"))
     if result == "saved":
         return {"response": "Notatka zapisana."}
     return {"response": "Brakuje tresci notatki."}
 
 
 @app.delete("/notes/{note_id}")
-def remove_note(note_id: str, _authorized: None = Depends(verify_token)):
+def remove_note(note_id: str, current_user: dict = Depends(get_current_user)):
     note_path = note_path_from_id(note_id)
-    result = delete_note(str(note_path))
+    result = delete_note(str(note_path), user_id=current_user.get("user_id"))
     if result == "deleted":
         return {"response": "Notatka usunieta."}
     if result == "missing":

@@ -1,4 +1,4 @@
-import json
+﻿import json
 import re
 import subprocess
 import sys
@@ -14,6 +14,8 @@ from pathlib import Path
 
 import customtkinter as ctk
 
+import jarvis_api_client
+from jarvis_api_client import JarvisApiError
 from actions import app_label_from_entry, close_app, create_note, delete_note, load_apps_raw, load_notes, open_app
 from app_scanner import (
     clean_apps_json,
@@ -323,9 +325,18 @@ class JarvisControlCenter(ctk.CTk):
         self.apps_per_page = 50
         self.scan_app_buttons = []
         config = load_config()
+        runtime_mode = str(config.get("runtime_mode") or "local_full")
+        if runtime_mode not in {"local_full", "client", "server"}:
+            runtime_mode = "local_full"
+        remote_server = config.get("remote_server") if isinstance(config.get("remote_server"), dict) else {}
+        self.runtime_mode = tk.StringVar(value=runtime_mode)
+        self.runtime_mode_label = tk.StringVar(value=self.runtime_mode_to_label(runtime_mode))
         self.backend_url = tk.StringVar(value=str(config.get("backend_url") or "http://127.0.0.1:8000"))
         self.api_token = tk.StringVar(value=str(config.get("api_token") or ""))
         self.device_id = tk.StringVar(value=str(config.get("device_id") or "local-pc"))
+        self.remote_server_url = tk.StringVar(value=str(remote_server.get("base_url") or "https://twoj-adres-serwera"))
+        self.remote_api_token = tk.StringVar(value=str(remote_server.get("api_token") or ""))
+        self.remote_device_id = tk.StringVar(value=str(remote_server.get("device_id") or ""))
         self.text_scale = tk.StringVar(value=str(config.get("text_scale") or "1.0"))
         self.hud_scale = tk.StringVar(value=str(config.get("hud_scale") or "1.15"))
         self.last_valid_text_scale = self.parse_scale_value(self.text_scale.get(), 1.0, 0.6, 1.8)
@@ -530,6 +541,7 @@ class JarvisControlCenter(ctk.CTk):
             ("Backend", "Nieznany"),
             ("Agent", "Nieznany"),
             ("Telefon", "Nieznany"),
+            ("Runtime", self.runtime_mode_to_label(self.runtime_mode.get())),
             ("Model", str(config.get("model") or "local-model")),
             ("Device ID", str(config.get("device_id") or "local-pc")),
         ]
@@ -625,21 +637,28 @@ class JarvisControlCenter(ctk.CTk):
             font=self.ui_font(10, "bold"),
         ).grid(row=2, column=0, columnspan=3, sticky="w", padx=self.scale_hud(8), pady=self.hud_pad((14, 4)))
 
-        actions = [
-            ("Start Processor", self.start_processor, PURPLE),
-            ("Start Backend", self.start_backend, CYAN),
-            ("Start Agent", self.start_agent, BLUE),
-            ("Połącz telefon", self.open_pairing, PURPLE),
-            ("Skanuj aplikacje", self.scan_apps, PURPLE),
-            ("Odśwież status", self.refresh_status, CYAN),
-        ]
+        if self.is_client_mode():
+            actions = [
+                ("Test polaczenia", self.test_connection, CYAN),
+                ("Polacz telefon", self.open_pairing, PURPLE),
+                ("Odswiez status", self.refresh_status, CYAN),
+            ]
+        else:
+            actions = [
+                ("Start Processor", self.start_processor, PURPLE),
+                ("Start Backend", self.start_backend, CYAN),
+                ("Start Agent", self.start_agent, BLUE),
+                ("Połącz telefon", self.open_pairing, PURPLE),
+                ("Skanuj aplikacje", self.scan_apps, PURPLE),
+                ("Odśwież status", self.refresh_status, CYAN),
+            ]
         for index, (label, command, color) in enumerate(actions):
             button = self.make_button(grid, label, command, border_color=color, width=210, height=42)
             button.grid(row=(index // 3) * 2 + 1, column=index % 3, padx=self.scale_hud(8), pady=self.scale_hud(6), sticky="ew")
             if label == "Skanuj aplikacje":
                 self.scan_apps_button = button
                 self.scan_app_buttons.append(button)
-            if label == "Odśwież status":
+            if label in {"Odśwież status", "Odswiez status"}:
                 self.refresh_button = button
 
         self.control_status_frame = ctk.CTkScrollableFrame(
@@ -658,6 +677,7 @@ class JarvisControlCenter(ctk.CTk):
             "Processor / LLM",
             "Agent PC",
             "Telefon",
+            "Runtime Mode",
             "Model",
             "Device ID",
             "API Token",
@@ -965,14 +985,20 @@ class JarvisControlCenter(ctk.CTk):
             widget.destroy()
 
         row = 0
+        row = self.add_settings_section(row, "TRYB DZIALANIA")
+        row = self.add_runtime_mode_row(row)
         row = self.add_settings_section(row, "POŁĄCZENIE")
         row = self.add_setting_entry(row, "Backend URL", self.backend_url)
         row = self.add_setting_entry(row, "API Token", self.api_token, show="*")
         row = self.add_setting_entry(row, "Device ID", self.device_id)
+        row = self.add_setting_entry(row, "Remote Server URL", self.remote_server_url)
+        row = self.add_setting_entry(row, "Remote API Token", self.remote_api_token, show="*")
+        row = self.add_setting_entry(row, "Remote Device ID", self.remote_device_id)
         row = self.add_settings_buttons(
             row,
             [
-                ("Odśwież połączenie", self.refresh_status, CYAN),
+                ("Test połączenia", self.test_connection, CYAN),
+                ("Zapisz połączenie", self.save_settings, PURPLE),
                 ("Połącz telefon / QR", self.open_pairing, PURPLE),
             ],
         )
@@ -1055,6 +1081,40 @@ class JarvisControlCenter(ctk.CTk):
     def note_title_label_to_mode(self, label):
         return "ask" if label == "Pytaj zawsze" else "auto"
 
+    def runtime_mode_to_label(self, mode):
+        labels = {
+            "local_full": "Local Full",
+            "client": "Client",
+            "server": "Server",
+        }
+        return labels.get(mode, "Local Full")
+
+    def runtime_label_to_mode(self, label):
+        mapping = {
+            "Local Full": "local_full",
+            "Client": "client",
+            "Server": "server",
+        }
+        return mapping.get(label, "local_full")
+
+    def is_client_mode(self):
+        return self.runtime_mode.get() == "client"
+
+    def effective_base_url(self):
+        if self.is_client_mode():
+            return self.remote_server_url.get().strip().rstrip("/")
+        return self.backend_url.get().strip().rstrip("/") or "http://127.0.0.1:8000"
+
+    def effective_token(self):
+        if self.is_client_mode():
+            return self.remote_api_token.get().strip()
+        return self.api_token.get() or load_config().get("api_token") or ""
+
+    def effective_device_id(self):
+        if self.is_client_mode():
+            return self.remote_device_id.get().strip() or self.device_id.get().strip() or "client-pc"
+        return self.device_id.get().strip() or "local-pc"
+
     def add_note_title_mode_row(self, row):
         line = ctk.CTkFrame(self.settings_grid, fg_color="transparent")
         line.grid(row=row, column=0, sticky="ew", padx=self.scale_hud(12), pady=self.scale_hud(5))
@@ -1076,6 +1136,39 @@ class JarvisControlCenter(ctk.CTk):
         )
         menu.grid(row=0, column=1, sticky="w")
         return row + 1
+
+    def add_runtime_mode_row(self, row):
+        line = ctk.CTkFrame(self.settings_grid, fg_color="transparent")
+        line.grid(row=row, column=0, sticky="ew", padx=self.scale_hud(12), pady=self.scale_hud(5))
+        line.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(line, text="Runtime Mode", text_color=MUTED, font=self.ui_font(10, "bold")).grid(
+            row=0, column=0, sticky="w", padx=self.hud_pad((0, 12))
+        )
+        menu = ctk.CTkOptionMenu(
+            line,
+            values=["Local Full", "Client", "Server"],
+            variable=self.runtime_mode_label,
+            command=self.change_runtime_mode,
+            fg_color=PANEL,
+            button_color=BLUE,
+            button_hover_color=PURPLE,
+            dropdown_fg_color=PANEL,
+            text_color=TEXT,
+            width=self.scale_hud(180),
+        )
+        menu.grid(row=0, column=1, sticky="w")
+        return row + 1
+
+    def change_runtime_mode(self, label):
+        current_tab = self.active_tab
+        mode = self.runtime_label_to_mode(label)
+        self.runtime_mode.set(mode)
+        self.runtime_mode_label.set(self.runtime_mode_to_label(mode))
+        config = load_config()
+        config["runtime_mode"] = mode
+        save_config(config)
+        self.rebuild_scaled_ui(current_tab)
+        self.log(f"Runtime mode: {self.runtime_mode_to_label(mode)}")
 
     def change_note_title_mode(self, label):
         current_tab = self.active_tab
@@ -1132,7 +1225,10 @@ class JarvisControlCenter(ctk.CTk):
         for widget in self.notes_list.winfo_children():
             widget.destroy()
         try:
-            notes = load_notes()
+            if self.is_client_mode():
+                notes = jarvis_api_client.list_notes(self.effective_base_url(), self.effective_token())
+            else:
+                notes = load_notes()
         except Exception as error:
             self.log(f"Błąd notatek: {error}")
             notes = []
@@ -1171,7 +1267,11 @@ class JarvisControlCenter(ctk.CTk):
             self.log("Brakuje treści notatki.")
             return
         try:
-            result = create_note(content, title)
+            if self.is_client_mode():
+                jarvis_api_client.create_note(self.effective_base_url(), self.effective_token(), title, content)
+                result = "saved"
+            else:
+                result = create_note(content, title)
             if result == "saved":
                 self.log(f"Zapisano notatkę: {title or 'bez tytułu'}")
                 self.hide_new_note_form()
@@ -1182,6 +1282,12 @@ class JarvisControlCenter(ctk.CTk):
             self.log(f"Błąd zapisu notatki: {error}")
 
     def show_note_details(self, note):
+        if self.is_client_mode() and note.get("id") and not note.get("content"):
+            try:
+                note = jarvis_api_client.get_note(self.effective_base_url(), self.effective_token(), note.get("id"))
+            except Exception as error:
+                self.log(f"Blad pobierania notatki: {error}")
+                return
         self.note_selected = note
         self.note_detail_title.configure(text=str(note.get("title") or "Bez tytułu"))
         self.note_detail_content.configure(state="normal")
@@ -1195,7 +1301,11 @@ class JarvisControlCenter(ctk.CTk):
             self.log("Nie wybrano notatki.")
             return
         try:
-            result = delete_note(self.note_selected.get("path"))
+            if self.is_client_mode():
+                jarvis_api_client.delete_note(self.effective_base_url(), self.effective_token(), self.note_selected.get("id"))
+                result = "deleted"
+            else:
+                result = delete_note(self.note_selected.get("path"))
             if result in {"deleted", "ok", "removed"}:
                 self.log("Usunięto notatkę.")
             else:
@@ -1285,6 +1395,12 @@ class JarvisControlCenter(ctk.CTk):
                 "backend_url": self.backend_url.get().strip() or "http://127.0.0.1:8000",
                 "api_token": self.api_token.get(),
                 "device_id": self.device_id.get().strip() or "local-pc",
+                "runtime_mode": self.runtime_mode.get() if self.runtime_mode.get() in {"local_full", "client", "server"} else "local_full",
+                "remote_server": {
+                    "base_url": self.remote_server_url.get().strip(),
+                    "api_token": self.remote_api_token.get(),
+                    "device_id": self.remote_device_id.get().strip(),
+                },
                 "text_scale": self.parse_scale_value(self.text_scale.get(), self.last_valid_text_scale, 0.6, 1.8),
                 "hud_scale": self.parse_scale_value(self.hud_scale.get(), self.last_valid_hud_scale, 0.6, 1.5),
                 "show_system_status": bool(self.show_status_panel.get()),
@@ -1312,6 +1428,11 @@ class JarvisControlCenter(ctk.CTk):
         self.backend_url.set("http://127.0.0.1:8000")
         self.api_token.set("")
         self.device_id.set("local-pc")
+        self.runtime_mode.set("local_full")
+        self.runtime_mode_label.set(self.runtime_mode_to_label("local_full"))
+        self.remote_server_url.set("https://twoj-adres-serwera")
+        self.remote_api_token.set("")
+        self.remote_device_id.set("")
         self.last_valid_text_scale = 1.0
         self.last_valid_hud_scale = 1.15
         self.text_scale.set("1.00")
@@ -1544,6 +1665,10 @@ class JarvisControlCenter(ctk.CTk):
         self.chat_input.set("")
         self.add_chat_message("Ty", message)
 
+        if self.is_client_mode() and (not self.effective_base_url() or not self.effective_token()):
+            self.add_chat_message("System", "Ustaw Remote Server URL i API Token w USTAWIENIACH.")
+            return
+
         if self.pending_note_content:
             if normalize_note_lookup(message) in {"anuluj", "cancel"}:
                 self.pending_note_content = None
@@ -1553,7 +1678,11 @@ class JarvisControlCenter(ctk.CTk):
 
             title = message.strip()
             try:
-                result = create_note(self.pending_note_content, title)
+                if self.is_client_mode():
+                    jarvis_api_client.create_note(self.effective_base_url(), self.effective_token(), title, self.pending_note_content)
+                    result = "saved"
+                else:
+                    result = create_note(self.pending_note_content, title)
             except Exception as error:
                 self.log(f"Błąd zapisu notatki: {error}")
                 self.add_chat_message("Jarvis", "Nie udało się zapisać notatki.")
@@ -1569,7 +1698,7 @@ class JarvisControlCenter(ctk.CTk):
             self.add_chat_message("Jarvis", "Nie udało się zapisać notatki.")
             return
 
-        note = parse_note_request(message)
+        note = None if self.is_client_mode() else parse_note_request(message)
         if note:
             self.log("Note intent detected")
             self.log(f"Note title: {note['title']}")
@@ -1599,33 +1728,23 @@ class JarvisControlCenter(ctk.CTk):
         threading.Thread(target=self._send_chat_worker, args=(message,), daemon=True).start()
 
     def _send_chat_worker(self, message):
-        base_url = self.backend_url.get().strip().rstrip("/") or "http://127.0.0.1:8000"
-        headers = self.auth_headers()
         try:
-            status, data = post_json(
-                f"{base_url}/process-text",
-                {"text": message, "device_id": self.device_id.get().strip() or "local-pc"},
-                headers=headers,
+            data = jarvis_api_client.send_chat_message(
+                self.effective_base_url(),
+                self.effective_token(),
+                message,
+                device_id=self.effective_device_id(),
             )
             response = data.get("response") if isinstance(data, dict) else None
-            if status == 200 and response:
+            if response:
                 self.after(0, lambda: self.add_chat_message("Jarvis", str(response)))
                 return
-        except Exception:
-            pass
-
-        try:
-            status, data = post_json(f"{base_url}/chat", {"message": message}, headers=headers)
-            response = data.get("response") if isinstance(data, dict) else None
-            if status == 200 and response:
-                self.after(0, lambda: self.add_chat_message("Jarvis", str(response)))
-                return
-            self.after(0, lambda: self.add_chat_message("System", "Brak odpowiedzi backendu."))
-        except urllib.error.HTTPError as error:
-            text = "Unauthorized" if error.code == 401 else f"Błąd HTTP: {error.code}"
+            self.after(0, lambda: self.add_chat_message("System", "Brak odpowiedzi serwera."))
+        except JarvisApiError as error:
+            text = "Unauthorized" if error.status == 401 else str(error)
             self.after(0, lambda: self.add_chat_message("System", text))
         except Exception:
-            self.after(0, lambda: self.add_chat_message("System", "Backend offline lub nieobsługiwane."))
+            self.after(0, lambda: self.add_chat_message("System", "Serwer offline lub nieobslugiwane."))
 
     def set_status(self, name, state, detail=None):
         if name not in self.status_labels:
@@ -1653,19 +1772,20 @@ class JarvisControlCenter(ctk.CTk):
     def apply_statuses(self, statuses, config):
         for name, (state, detail) in statuses.items():
             self.set_status(name, state, detail)
+        self.set_status("Runtime", "Unknown", self.runtime_mode_to_label(self.runtime_mode.get()))
         self.set_status("Model", "Unknown", str(config.get("model") or "local-model"))
-        self.set_status("Device ID", "Unknown", str(config.get("device_id") or "local-pc"))
+        self.set_status("Device ID", "Unknown", self.effective_device_id())
         self.update_control_statuses(statuses, config)
         self.log("Status odświeżony")
         if hasattr(self, "refresh_button"):
             self.refresh_button.configure(state="normal", text="Odśwież status")
 
     def auth_headers(self):
-        token = self.api_token.get() or load_config().get("api_token") or ""
+        token = self.effective_token()
         return {"X-Jarvis-Token": token} if token else {}
 
     def backend_api_url(self, path):
-        base_url = self.backend_url.get().strip().rstrip("/") or "http://127.0.0.1:8000"
+        base_url = self.effective_base_url()
         return f"{base_url}{path}"
 
     def update_control_statuses(self, statuses, config):
@@ -1673,13 +1793,14 @@ class JarvisControlCenter(ctk.CTk):
             return
         mapping = {
             "Backend": statuses.get("Backend", ("Offline", "Offline"))[1],
-            "Hub": self.backend_url.get().strip() or "http://127.0.0.1:8000",
+            "Hub": self.effective_base_url() or "brak",
             "Processor / LLM": statuses.get("Processor", ("Offline", "Offline"))[1],
             "Agent PC": statuses.get("Agent", ("Offline", "Offline"))[1],
             "Telefon": statuses.get("Telefon", ("Offline", "Offline"))[1],
+            "Runtime Mode": self.runtime_mode_to_label(self.runtime_mode.get()),
             "Model": str(config.get("model") or "local-model"),
-            "Device ID": self.device_id.get().strip() or str(config.get("device_id") or "local-pc"),
-            "API Token": "••••••••" if (self.api_token.get() or config.get("api_token")) else "brak",
+            "Device ID": self.effective_device_id(),
+            "API Token": "••••••••" if self.effective_token() else "brak",
             "LM Studio": statuses.get("LM Studio", ("Offline", "Offline"))[1],
         }
         for name, value in mapping.items():
@@ -1741,6 +1862,21 @@ class JarvisControlCenter(ctk.CTk):
             pass
         return "Offline", "Offline"
 
+    def test_connection(self):
+        threading.Thread(target=self._test_connection_worker, daemon=True).start()
+
+    def _test_connection_worker(self):
+        try:
+            data = jarvis_api_client.get_status(self.effective_base_url(), self.effective_token())
+            status_text = data.get("status") if isinstance(data, dict) else "ok"
+            self.after(0, lambda: self.log(f"Polaczenie OK: {status_text}"))
+            self.after(0, self.refresh_status)
+        except JarvisApiError as error:
+            text = "Unauthorized" if error.status == 401 else str(error)
+            self.after(0, lambda: self.log(f"Blad polaczenia: {text}"))
+        except Exception as error:
+            self.after(0, lambda: self.log(f"Blad polaczenia: {error}"))
+
     def is_tracked_process_running(self, key):
         process = self.processes.get(key)
         return process is not None and process.poll() is None
@@ -1772,6 +1908,9 @@ class JarvisControlCenter(ctk.CTk):
             self.log(f"Błąd startu {key}: {error}")
 
     def start_processor(self):
+        if self.is_client_mode():
+            self.log("Tryb Client: lokalny Processor nie jest uruchamiany.")
+            return
         self.start_process_once(
             "processor",
             [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8001"],
@@ -1781,6 +1920,9 @@ class JarvisControlCenter(ctk.CTk):
         )
 
     def start_backend(self):
+        if self.is_client_mode():
+            self.log("Tryb Client: lokalny Backend nie jest uruchamiany.")
+            return
         self.start_process_once(
             "backend",
             [sys.executable, "-m", "uvicorn", "api_server:app", "--host", "0.0.0.0", "--port", "8000"],
@@ -1790,6 +1932,9 @@ class JarvisControlCenter(ctk.CTk):
         )
 
     def start_agent(self):
+        if self.is_client_mode():
+            self.log("Tryb Client: lokalny Agent nie jest uruchamiany.")
+            return
         self.start_process_once(
             "agent",
             [sys.executable, "jarvis_agent.py"],
@@ -1799,10 +1944,17 @@ class JarvisControlCenter(ctk.CTk):
         )
 
     def open_pairing(self):
-        webbrowser.open(PAIRING_QR_URL)
+        if self.is_client_mode():
+            url = f"{self.effective_base_url()}/pairing-qr" if self.effective_base_url() else PAIRING_QR_URL
+        else:
+            url = PAIRING_QR_URL
+        webbrowser.open(url)
         self.log("Otwieram pairing telefonu")
 
     def scan_apps(self):
+        if self.is_client_mode():
+            self.log("Tryb Client: skanowanie aplikacji jest dostepne tylko lokalnie.")
+            return
         self.configure_scan_buttons("disabled", "Skanuje...")
         self.log("Skanuje aplikacje")
         threading.Thread(target=self._scan_apps_worker, daemon=True).start()

@@ -1,0 +1,10 @@
+{
+  "hubert": {
+    "token": "dev-token",
+    "display_name": "Hubert"
+  },
+  "friend1": {
+    "token": "friend-token-1",
+    "display_name": "Friend 1"
+  }
+}

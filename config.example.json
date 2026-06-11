@@ -21,6 +21,14 @@
   "whisper_device": "cpu",
   "whisper_compute_type": "int8",
   "api_token": "exemple_token",
+  "runtime_mode": "local_full",
+  "remote_server": {
+    "base_url": "https://twoj-adres-serwera",
+    "api_token": "",
+    "device_id": ""
+  },
+  "backend_url": "http://127.0.0.1:8000",
+  "device_id": "local-pc",
   "processor_url": "http://127.0.0.1:8001",
   "note_title_mode": "auto"
 }

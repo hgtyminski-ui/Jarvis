@@ -816,17 +816,17 @@ def spotify_search(query):
     return True
 
 
-def create_note(content, title=None):
-    return create_note_file(title or "", content)
+def create_note(content, title=None, user_id=None):
+    return create_note_file(title or "", content, user_id=user_id)
 
 
-def delete_note(note_path):
-    return delete_note_file(note_path)
+def delete_note(note_path, user_id=None):
+    return delete_note_file(note_path, user_id=user_id)
 
 
-def load_notes():
-    return list_note_files()
+def load_notes(user_id=None):
+    return list_note_files(user_id=user_id)
 
 
-def list_notes():
-    return list_note_files()
+def list_notes(user_id=None):
+    return list_note_files(user_id=user_id)
