@@ -1,3 +1,3 @@
 @echo off
 cd /d C:\Users\User\Documents\Jarvis
-python start_jarvis.py
+python stop_jarvis.py
