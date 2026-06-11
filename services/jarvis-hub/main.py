@@ -104,10 +104,113 @@ def normalize_text(text):
     return re.sub(r"\s+", " ", without_accents)
 
 
+NOTE_CONTROL_PHRASES = [
+    "zapisz mi w notatkach",
+    "zapisz w notatkach",
+    "zapisz mi",
+    "zapisz",
+    "dodaj do notatek",
+    "dodaj notatke",
+    "dodaj notatkę",
+    "zanotuj",
+    "notatka",
+    "w notatkach",
+    "ze",
+    "że",
+]
+
+
+def normalize_note_content(raw_text):
+    content = str(raw_text or "").strip(" ,:-")
+    content = re.sub(r"\s+", " ", content)
+    changed = True
+    while changed and content:
+        changed = False
+        normalized = normalize_text(content)
+        for phrase in sorted(NOTE_CONTROL_PHRASES, key=len, reverse=True):
+            normalized_phrase = normalize_text(phrase)
+            if normalized == normalized_phrase:
+                content = ""
+                changed = False
+                break
+            if normalized.startswith(normalized_phrase + " "):
+                content = content[len(phrase) :].strip(" ,:-")
+                changed = True
+                break
+    content = re.sub(r"\s+", " ", content).strip(" ,:-")
+    if not content:
+        return ""
+    content = content[0].upper() + content[1:]
+    if content[-1] not in ".!?":
+        content += "."
+    return content
+
+
+def generate_note_title(content):
+    normalized = normalize_text(content)
+    if "mleko" in normalized or "kupic" in normalized or "zakupy" in normalized:
+        return sanitize_note_title("Zakupy")
+    if "imprez" in normalized:
+        return sanitize_note_title("Impreza")
+    if "lekarz" in normalized or "dentysta" in normalized:
+        return sanitize_note_title("Lekarz" if "lekarz" in normalized else "Dentysta")
+    if "spotkanie" in normalized:
+        words = important_note_words(content)
+        if len(words) >= 2:
+            return sanitize_note_title(f"Spotkanie {words[1]}")
+        return sanitize_note_title("Spotkanie")
+    return sanitize_note_title(" ".join(important_note_words(content)[:2]))
+
+
+def important_note_words(content):
+    stop_words = {
+        "mam",
+        "masz",
+        "trzeba",
+        "musze",
+        "muszę",
+        "musisz",
+        "jutro",
+        "dzisiaj",
+        "w",
+        "na",
+        "do",
+        "ze",
+        "że",
+        "z",
+        "o",
+        "i",
+    }
+    words = re.findall(r"[A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż0-9]+", str(content or ""))
+    important = []
+    for word in words:
+        normalized = normalize_text(word)
+        if normalized in stop_words:
+            continue
+        important.append("Kuba" if normalized == "kuba" else word)
+    return important
+
+
+def sanitize_note_title(title):
+    cleaned = str(title or "").strip().strip("\"'„”")
+    cleaned = re.sub(r"[.!?]+$", "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,:-")
+    words = important_note_words(cleaned)[:2]
+    if not words:
+        return "Notatka"
+    cleaned = " ".join(words)
+    return cleaned[0].upper() + cleaned[1:]
+
+
 def parse_note_text(text):
     raw_text = str(text or "").strip()
     normalized = normalize_text(raw_text)
     prefixes = [
+        "zapisz mi w notatkach",
+        "zapisz w notatkach",
+        "zapisz mi",
+        "dodaj do notatek",
+        "zanotuj",
         "zapisz notatke",
         "dodaj notatke",
         "zapisz notatkę",
@@ -129,7 +232,7 @@ def parse_note_text(text):
         return None
 
     title = ""
-    note_content = content.strip()
+    note_content = normalize_note_content(content)
     title_match = re.match(
         r"^\s*tytu[lł]\s+(?P<title>.+?)\s+tre[sś][cć]\s+(?P<content>.+)$",
         note_content,
@@ -137,15 +240,15 @@ def parse_note_text(text):
     )
     if title_match:
         title = title_match.group("title").strip(" :-")
-        note_content = title_match.group("content").strip()
+        note_content = normalize_note_content(title_match.group("content"))
     elif " - " in note_content:
         possible_title, possible_content = note_content.split(" - ", 1)
         if possible_title.strip() and possible_content.strip():
             title = possible_title.strip()
-            note_content = possible_content.strip()
+            note_content = normalize_note_content(possible_content)
 
     return {
-        "title": title,
+        "title": title or generate_note_title(note_content),
         "content": note_content,
         "matched_prefix": matched_prefix,
     }
@@ -159,6 +262,16 @@ def need_note_title_response(content, device_id):
         "draft": {
             "content": content,
         },
+        "device_id": device_id,
+    }
+
+
+def need_note_content_response(device_id):
+    return {
+        "status": "need_input",
+        "response": "Jasne — co mam zapisać w notatce?",
+        "missing": "content",
+        "draft": {},
         "device_id": device_id,
     }
 
@@ -260,6 +373,8 @@ async def process_text(
     if local_note is not None:
         title = local_note["title"]
         content = local_note["content"]
+        if not content:
+            return need_note_content_response(request.device_id)
         if not title:
             return need_note_title_response(content, request.device_id)
         return save_note_response(title, content, request.device_id)
@@ -277,7 +392,13 @@ async def process_text(
 
     if action in {"create_note", "note_create"}:
         title, content = note_payload_from_command(command)
-        if command_needs_note_title(command) or not title:
+        content = normalize_note_content(content)
+        title = title or generate_note_title(content)
+        if not content:
+            response = need_note_content_response(request.device_id)
+            response["command"] = command
+            return response
+        if not title:
             response = need_note_title_response(content, request.device_id)
             response["command"] = command
             return response

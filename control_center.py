@@ -1,4 +1,5 @@
 import json
+import re
 import subprocess
 import sys
 import threading
@@ -6,6 +7,7 @@ import tkinter as tk
 from tkinter import filedialog
 import urllib.error
 import urllib.request
+import unicodedata
 import webbrowser
 from datetime import datetime
 from pathlib import Path
@@ -47,6 +49,180 @@ BACKEND_STATUS_URL = "http://127.0.0.1:8000/status"
 BACKEND_AGENTS_URL = "http://127.0.0.1:8000/agents"
 PHONE_STATUS_URL = "http://127.0.0.1:8000/phone/status"
 PAIRING_QR_URL = "http://127.0.0.1:8000/pairing-qr"
+
+NOTE_REQUEST_PATTERN = re.compile(
+    r"^\s*(?:"
+    r"zapisz\s+notatk[ęe]|"
+    r"zapisz(?:\s+mi)?(?:\s+w\s+notatkach)?|"
+    r"dodaj\s+do\s+notatek|"
+    r"dodaj\s+notatk[ęe]|"
+    r"zanotuj"
+    r")\s*[:,-]?\s*(?P<content>.*)$",
+    flags=re.IGNORECASE,
+)
+NOTE_LEADING_NOISE_PATTERN = re.compile(
+    r"^\s*(?:(?:że|ze|w\s+notatkach|do\s+notatek|notatka|notatk[ęe])\s+)+",
+    flags=re.IGNORECASE,
+)
+
+
+def normalize_note_lookup(text):
+    lowered = str(text or "").strip().lower()
+    lowered = lowered.translate(str.maketrans({
+        "ą": "a",
+        "ć": "c",
+        "ę": "e",
+        "ł": "l",
+        "ń": "n",
+        "ó": "o",
+        "ś": "s",
+        "ź": "z",
+        "ż": "z",
+    }))
+    without_accents = unicodedata.normalize("NFKD", lowered)
+    without_accents = "".join(char for char in without_accents if not unicodedata.combining(char))
+    return re.sub(r"\s+", " ", without_accents)
+
+
+def normalize_note_content(raw_text):
+    content = re.sub(r"\s+", " ", str(raw_text or "").strip(" ,:-"))
+    previous = None
+    while content and content != previous:
+        previous = content
+        content = NOTE_REQUEST_PATTERN.sub(r"\g<content>", content).strip(" ,:-")
+        content = NOTE_LEADING_NOISE_PATTERN.sub("", content).strip(" ,:-")
+    if not content:
+        return ""
+    content = content[0].upper() + content[1:]
+    if content[-1] not in ".!?":
+        content += "."
+    return content
+
+
+def generate_note_title(content):
+    content = str(content or "").strip()
+    normalized = normalize_note_lookup(content)
+    if "mleko" in normalized or "kupic" in normalized or "zakupy" in normalized:
+        return sanitize_note_title("Zakupy")
+    if "imprez" in normalized:
+        return sanitize_note_title("Impreza")
+    if "lekarz" in normalized or "dentysta" in normalized:
+        return sanitize_note_title("Lekarz" if "lekarz" in normalized else "Dentysta")
+    if "spotkanie" in normalized:
+        words = important_note_words(content)
+        if len(words) >= 2:
+            return sanitize_note_title(f"Spotkanie {words[1]}")
+        return sanitize_note_title("Spotkanie")
+    return sanitize_note_title(" ".join(important_note_words(content)[:2]))
+
+
+def important_note_words(content):
+    stop_words = {
+        "mam",
+        "masz",
+        "trzeba",
+        "musze",
+        "muszę",
+        "musisz",
+        "jutro",
+        "dzisiaj",
+        "w",
+        "na",
+        "do",
+        "ze",
+        "że",
+        "z",
+        "o",
+        "i",
+    }
+    words = re.findall(r"[A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż0-9]+", str(content or ""))
+    important = []
+    for word in words:
+        normalized = normalize_note_lookup(word)
+        if normalized in stop_words:
+            continue
+        important.append("Kuba" if normalized == "kuba" else word)
+    return important
+
+
+def sanitize_note_title(title):
+    cleaned = str(title or "").strip().strip("\"'„”")
+    cleaned = re.sub(r"[.!?]+$", "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,:-")
+    words = important_note_words(cleaned)[:2]
+    if not words:
+        return "Notatka"
+    cleaned = " ".join(words)
+    return cleaned[0].upper() + cleaned[1:]
+
+
+def split_explicit_note_title(raw_content):
+    content = str(raw_content or "").strip(" ,:-")
+    normalized = normalize_note_lookup(content)
+    if not normalized.startswith("tytul "):
+        return "", content
+
+    try:
+        _prefix, rest = content.split(None, 1)
+    except ValueError:
+        return "", ""
+
+    if ":" in rest:
+        title, note_content = rest.split(":", 1)
+        return title.strip(" ,:-"), note_content.strip(" ,:-")
+
+    normalized_rest = normalize_note_lookup(rest)
+    marker = " tresc "
+    marker_index = normalized_rest.find(marker)
+    if marker_index >= 0:
+        title = rest[:marker_index].strip(" ,:-")
+        note_content = rest[marker_index + len(marker) :].strip(" ,:-")
+        return title, note_content
+
+    return "", content
+
+
+def parse_note_request(user_message):
+    raw_message = str(user_message or "").strip()
+    normalized = normalize_note_lookup(raw_message)
+    prefixes = [
+        "zapisz mi w notatkach",
+        "zapisz w notatkach",
+        "zapisz notatke",
+        "dodaj do notatek",
+        "dodaj notatke",
+        "zanotuj",
+        "zapisz mi",
+        "zapisz",
+    ]
+
+    raw_content = None
+    raw_words = raw_message.split()
+    for prefix in sorted(prefixes, key=len, reverse=True):
+        if normalized == prefix:
+            raw_content = ""
+            break
+        if normalized.startswith(prefix) and len(normalized) > len(prefix) and normalized[len(prefix)] in " ,:-":
+            prefix_word_count = len(prefix.split())
+            raw_content = " ".join(raw_words[prefix_word_count:]).strip(" ,:-")
+            break
+
+    if raw_content is None:
+        match = NOTE_REQUEST_PATTERN.match(raw_message)
+        if match:
+            raw_content = match.group("content")
+
+    if raw_content is None:
+        return None
+    explicit_title, raw_content = split_explicit_note_title(raw_content)
+    content = normalize_note_content(raw_content)
+    title = explicit_title or (generate_note_title(content) if content else "")
+    return {
+        "is_note": True,
+        "title": title,
+        "content": content,
+        "has_title": bool(explicit_title),
+    }
 
 
 def load_config():
@@ -164,9 +340,16 @@ class JarvisControlCenter(ctk.CTk):
         self.voice_pitch = tk.StringVar(value=str(config.get("voice_pitch") or "+0Hz"))
         self.microphone_enabled = tk.BooleanVar(value=bool(config.get("microphone_enabled", True)))
         self.ptt_mode = tk.BooleanVar(value=bool(config.get("ptt_mode", True)))
+        note_title_mode = str(config.get("note_title_mode") or "auto")
+        if note_title_mode not in {"auto", "ask"}:
+            note_title_mode = "auto"
+        self.note_title_mode = tk.StringVar(value=note_title_mode)
+        self.note_title_mode_label = tk.StringVar(value=self.note_title_mode_to_label(note_title_mode))
         self.chat_input = tk.StringVar(value="")
         self.note_title_var = tk.StringVar(value="")
         self.note_selected = None
+        self.pending_note_content = None
+        self.pending_note_created_at = None
 
         self.build_ui()
         self.switch_tab("chat")
@@ -800,6 +983,9 @@ class JarvisControlCenter(ctk.CTk):
         row = self.add_checkbox_row(row, "Show System Status", self.show_status_panel, self.apply_panel_visibility)
         row = self.add_checkbox_row(row, "Show Console Log", self.show_console_log, self.apply_panel_visibility)
 
+        row = self.add_settings_section(row, "NOTATKI")
+        row = self.add_note_title_mode_row(row)
+
         row = self.add_settings_section(row, "GŁOS")
         row = self.add_checkbox_row(row, "voice_enabled", self.voice_enabled)
         row = self.add_setting_entry(row, "voice_language", self.voice_language)
@@ -862,6 +1048,45 @@ class JarvisControlCenter(ctk.CTk):
         )
         checkbox.grid(row=row, column=0, sticky="w", padx=self.scale_hud(12), pady=self.scale_hud(6))
         return row + 1
+
+    def note_title_mode_to_label(self, mode):
+        return "Pytaj zawsze" if mode == "ask" else "Automatycznie"
+
+    def note_title_label_to_mode(self, label):
+        return "ask" if label == "Pytaj zawsze" else "auto"
+
+    def add_note_title_mode_row(self, row):
+        line = ctk.CTkFrame(self.settings_grid, fg_color="transparent")
+        line.grid(row=row, column=0, sticky="ew", padx=self.scale_hud(12), pady=self.scale_hud(5))
+        line.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(line, text="Tytuł notatki", text_color=MUTED, font=self.ui_font(10, "bold")).grid(
+            row=0, column=0, sticky="w", padx=self.hud_pad((0, 12))
+        )
+        menu = ctk.CTkOptionMenu(
+            line,
+            values=["Automatycznie", "Pytaj zawsze"],
+            variable=self.note_title_mode_label,
+            command=self.change_note_title_mode,
+            fg_color=PANEL,
+            button_color=BLUE,
+            button_hover_color=PURPLE,
+            dropdown_fg_color=PANEL,
+            text_color=TEXT,
+            width=self.scale_hud(180),
+        )
+        menu.grid(row=0, column=1, sticky="w")
+        return row + 1
+
+    def change_note_title_mode(self, label):
+        current_tab = self.active_tab
+        mode = self.note_title_label_to_mode(label)
+        self.note_title_mode.set(mode)
+        self.note_title_mode_label.set(self.note_title_mode_to_label(mode))
+        config = load_config()
+        config["note_title_mode"] = mode
+        save_config(config)
+        self.restore_active_tab(current_tab)
+        self.log(f"Tryb tytułu notatek: {self.note_title_mode_label.get()}")
 
     def add_scale_row(self, row, label, variable, step):
         line = ctk.CTkFrame(self.settings_grid, fg_color="transparent")
@@ -1070,6 +1295,7 @@ class JarvisControlCenter(ctk.CTk):
                 "voice_pitch": self.voice_pitch.get().strip(),
                 "microphone_enabled": bool(self.microphone_enabled.get()),
                 "ptt_mode": bool(self.ptt_mode.get()),
+                "note_title_mode": self.note_title_mode.get() if self.note_title_mode.get() in {"auto", "ask"} else "auto",
             }
         )
         try:
@@ -1098,6 +1324,8 @@ class JarvisControlCenter(ctk.CTk):
         self.voice_pitch.set("+0Hz")
         self.microphone_enabled.set(True)
         self.ptt_mode.set(True)
+        self.note_title_mode.set("auto")
+        self.note_title_mode_label.set(self.note_title_mode_to_label("auto"))
         self.apply_panel_visibility()
         self.restore_active_tab(current_tab)
         self.log("Zresetowano ustawienia w formularzu.")
@@ -1315,6 +1543,59 @@ class JarvisControlCenter(ctk.CTk):
             return
         self.chat_input.set("")
         self.add_chat_message("Ty", message)
+
+        if self.pending_note_content:
+            if normalize_note_lookup(message) in {"anuluj", "cancel"}:
+                self.pending_note_content = None
+                self.pending_note_created_at = None
+                self.add_chat_message("Jarvis", "Anulowałem tworzenie notatki.")
+                return
+
+            title = message.strip()
+            try:
+                result = create_note(self.pending_note_content, title)
+            except Exception as error:
+                self.log(f"Błąd zapisu notatki: {error}")
+                self.add_chat_message("Jarvis", "Nie udało się zapisać notatki.")
+                return
+
+            self.pending_note_content = None
+            self.pending_note_created_at = None
+            if result == "saved":
+                self.add_chat_message("Jarvis", f"Zapisałem notatkę: {title}")
+                if hasattr(self, "notes_list"):
+                    self.refresh_notes_view()
+                return
+            self.add_chat_message("Jarvis", "Nie udało się zapisać notatki.")
+            return
+
+        note = parse_note_request(message)
+        if note:
+            self.log("Note intent detected")
+            self.log(f"Note title: {note['title']}")
+            self.log(f"Note content: {note['content']}")
+            if not note["content"]:
+                self.add_chat_message("Jarvis", "Jasne — co mam zapisać w notatce?")
+                return
+            if self.note_title_mode.get() == "ask" and not note.get("has_title"):
+                self.pending_note_content = note["content"]
+                self.pending_note_created_at = datetime.now()
+                self.add_chat_message("Jarvis", "Jasne — jaki tytuł nadać tej notatce?")
+                return
+            try:
+                result = create_note(note["content"], note["title"])
+            except Exception as error:
+                self.log(f"Błąd zapisu notatki: {error}")
+                self.add_chat_message("Jarvis", "Nie udało się zapisać notatki.")
+                return
+            if result == "saved":
+                self.add_chat_message("Jarvis", f"Zapisałem notatkę: {note['title']}")
+                if hasattr(self, "notes_list"):
+                    self.refresh_notes_view()
+                return
+            self.add_chat_message("Jarvis", "Jasne — co mam zapisać w notatce?")
+            return
+
         threading.Thread(target=self._send_chat_worker, args=(message,), daemon=True).start()
 
     def _send_chat_worker(self, message):

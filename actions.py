@@ -85,6 +85,21 @@ NOTE_PREFIXES = [
     "zapisz to",
     "zanotuj",
 ]
+NOTE_CONTROL_PHRASES = [
+    "zapisz mi w notatkach",
+    "zapisz w notatkach",
+    "zapisz mi",
+    "zapisz",
+    "dodaj do notatek",
+    "dodaj notatke",
+    "dodaj notatkę",
+    "zanotuj",
+    "notatka",
+    "w notatkach",
+    "ze",
+    "że",
+]
+NOTE_PREFIXES.append("dodaj do notatek")
 NOTE_INTRO_PATTERN = re.compile(
     r"^\s*(hej\s+jarvis|ok\s+jarvis|jarvis|proszę\s+jarvis|prosze\s+jarvis|proszę|prosze|możesz|mozesz)"
     r"[\s,:-]+",
@@ -314,6 +329,121 @@ def parse_note_details(content):
             return title, note_content, True
 
     return "", content, False
+
+
+def clean_note_content(content):
+    return normalize_note_content(content)
+
+
+def normalize_note_content(raw_text):
+    content = str(raw_text or "").strip(" ,:-")
+    content = re.sub(r"\s+", " ", content)
+    content = strip_note_control_phrases(content)
+    content = re.sub(r"\s+", " ", content).strip(" ,:-")
+    if not content:
+        return ""
+    content = content[0].upper() + content[1:]
+    if content[-1] not in ".!?":
+        content += "."
+    return content
+
+
+def strip_note_control_phrases(content):
+    cleaned = str(content or "").strip(" ,:-")
+    changed = True
+    while changed and cleaned:
+        changed = False
+        normalized = normalize_text(cleaned)
+        for phrase in sorted(NOTE_CONTROL_PHRASES, key=len, reverse=True):
+            normalized_phrase = normalize_text(phrase)
+            if normalized == normalized_phrase:
+                return ""
+            if normalized.startswith(normalized_phrase + " "):
+                cleaned = cleaned[len(phrase) :].strip(" ,:-")
+                changed = True
+                break
+    return cleaned
+
+
+def generate_note_title(content):
+    normalized = normalize_text(content)
+    if "mleko" in normalized or "kupic" in normalized or "zakupy" in normalized:
+        return sanitize_note_title("Zakupy")
+    if "imprez" in normalized:
+        return sanitize_note_title("Impreza")
+    if "lekarz" in normalized or "dentysta" in normalized:
+        return sanitize_note_title("Lekarz" if "lekarz" in normalized else "Dentysta")
+    if "spotkanie" in normalized:
+        words = important_note_words(content)
+        if len(words) >= 2:
+            return sanitize_note_title(f"Spotkanie {words[1]}")
+        return sanitize_note_title("Spotkanie")
+    return sanitize_note_title(" ".join(important_note_words(content)[:2]))
+
+
+def important_note_words(content):
+    stop_words = {
+        "mam",
+        "masz",
+        "trzeba",
+        "musze",
+        "muszę",
+        "musisz",
+        "jutro",
+        "dzisiaj",
+        "w",
+        "na",
+        "do",
+        "ze",
+        "że",
+        "z",
+        "o",
+        "i",
+    }
+    words = re.findall(r"[A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż0-9]+", str(content or ""))
+    important = []
+    for word in words:
+        normalized = normalize_text(word)
+        if normalized in stop_words:
+            continue
+        important.append("Kuba" if normalized == "kuba" else word)
+    return important
+
+
+def sanitize_note_title(title):
+    cleaned = str(title or "").strip().strip("\"'„”")
+    cleaned = re.sub(r"[.!?]+$", "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,:-")
+    words = important_note_words(cleaned)[:2]
+    if not words:
+        return "Notatka"
+    cleaned = " ".join(words)
+    return cleaned[0].upper() + cleaned[1:]
+
+
+def parse_note_details(content):
+    content = normalize_note_content(content)
+    if not content:
+        return "", "", False
+
+    title_match = re.match(
+        r"^\s*tytu[lł]\s+(?P<title>.+?)\s+tre[sś][cć]\s+(?P<content>.+)$",
+        content,
+        flags=re.IGNORECASE,
+    )
+    if title_match:
+        title = title_match.group("title").strip(" :-")
+        note_content = normalize_note_content(title_match.group("content"))
+        return title or generate_note_title(note_content), note_content, True
+
+    if " - " in content:
+        title, note_content = content.split(" - ", 1)
+        title = title.strip()
+        note_content = normalize_note_content(note_content)
+        if title and note_content:
+            return title, note_content, True
+
+    return generate_note_title(content), content, bool(content)
 
 
 def parse_local_action(text):

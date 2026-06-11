@@ -41,12 +41,29 @@ LOCAL_APP_COMMANDS = {
     ("close", "whatsapp"): {"action": "close_app", "app": "whatsapp", "parameters": {}},
 }
 NOTE_PREFIXES = [
+    "zapisz mi w notatkach",
+    "zapisz w notatkach",
     "zapisz notatke",
+    "dodaj do notatek",
     "dodaj notatke",
     "zanotuj",
     "zapisz mi",
     "utworz notatke",
     "zapisz",
+]
+NOTE_CONTROL_PHRASES = [
+    "zapisz mi w notatkach",
+    "zapisz w notatkach",
+    "zapisz mi",
+    "zapisz",
+    "dodaj do notatek",
+    "dodaj notatke",
+    "dodaj notatkę",
+    "zanotuj",
+    "notatka",
+    "w notatkach",
+    "ze",
+    "że",
 ]
 REMINDER_PREFIXES = [
     "przypomnij mi",
@@ -198,6 +215,129 @@ def parse_note_payload(content):
             return title, note_content, False
 
     return "", content, True
+
+
+def strip_note_command_words(content):
+    cleaned = str(content or "").strip(" :-,\t\r\n")
+    changed = True
+    while changed and cleaned:
+        changed = False
+        normalized = normalize_text(cleaned)
+        for phrase in sorted(NOTE_CONTROL_PHRASES, key=len, reverse=True):
+            normalized_phrase = normalize_text(phrase)
+            if normalized == normalized_phrase:
+                return ""
+            if normalized.startswith(normalized_phrase + " "):
+                cleaned = cleaned[len(phrase) :].strip(" :-,\t\r\n")
+                changed = True
+                break
+    return cleaned
+
+
+def generate_note_title(content):
+    content = str(content or "").strip()
+    if not content:
+        return ""
+
+    llm_title = generate_note_title_with_llm(content)
+    if llm_title:
+        return sanitize_note_title(llm_title)
+
+    normalized = normalize_text(content)
+    if "mleko" in normalized or "kupic" in normalized or "zakupy" in normalized:
+        return sanitize_note_title("Zakupy")
+    if "imprez" in normalized:
+        return sanitize_note_title("Impreza")
+    if "lekarz" in normalized or "dentysta" in normalized:
+        return sanitize_note_title("Lekarz" if "lekarz" in normalized else "Dentysta")
+    if "spotkanie" in normalized:
+        words = important_note_words(content)
+        if len(words) >= 2:
+            return sanitize_note_title(f"Spotkanie {words[1]}")
+        return sanitize_note_title("Spotkanie")
+    return sanitize_note_title(" ".join(important_note_words(content)[:2]))
+
+
+def important_note_words(content):
+    stop_words = {
+        "mam",
+        "masz",
+        "trzeba",
+        "musze",
+        "muszę",
+        "musisz",
+        "jutro",
+        "dzisiaj",
+        "w",
+        "na",
+        "do",
+        "ze",
+        "że",
+        "z",
+        "o",
+        "i",
+    }
+    words = re.findall(r"[A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż0-9]+", str(content or ""))
+    important = []
+    for word in words:
+        normalized = normalize_text(word)
+        if normalized in stop_words:
+            continue
+        important.append("Kuba" if normalized == "kuba" else word)
+    return important
+
+
+def sanitize_note_title(title):
+    cleaned = str(title or "").strip().strip("\"'„”")
+    cleaned = re.sub(r"[.!?]+$", "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,:-")
+    words = important_note_words(cleaned)[:2]
+    if not words:
+        return "Notatka"
+    cleaned = " ".join(words)
+    return cleaned[0].upper() + cleaned[1:]
+
+
+def generate_note_title_with_llm(content):
+    try:
+        response = llm_client().chat.completions.create(
+            model=llm_model(),
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Wygeneruj bardzo krótki tytuł notatki po polsku. Maksymalnie 2 wyrazy. "
+                        "To ma być etykieta, nie zdanie. Nie używaj kropki. "
+                        "Nie dodawaj komentarza. Zwróć tylko tytuł."
+                    ),
+                },
+                {"role": "user", "content": str(content or "")},
+            ],
+            temperature=0,
+        )
+        title = response.choices[0].message.content.strip().strip("\"'")
+    except Exception:
+        return ""
+
+    return sanitize_note_title(title)
+
+
+def create_note_command(title, content, needs_title):
+    normalized_content = normalize_note_content(content)
+    normalized_title = title.strip() if isinstance(title, str) and title.strip() else generate_note_title(normalized_content)
+    parameters = {
+        "title": normalized_title if normalized_title else None,
+        "content": normalized_content,
+        "raw_content": str(content or "").strip(),
+        "needs_title": bool(needs_title and not normalized_title),
+    }
+    response = "Jasne — co mam zapisać w notatce?" if not normalized_content else f"Zapisałem notatkę: {normalized_title}"
+    return {
+        "action": "create_note",
+        "app": None,
+        "parameters": parameters,
+        "response": response,
+    }
 
 
 def local_parse_note(text):

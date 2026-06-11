@@ -18,10 +18,12 @@ from actions import (
     close_app,
     create_note,
     delete_note,
+    generate_note_title,
     is_app_running,
     load_apps,
     load_apps_raw,
     load_notes,
+    normalize_note_content,
     open_app,
 )
 from app_scanner import clean_apps_json, load_existing_apps, merge_discovered_apps, save_apps_json, scan_installed_apps
@@ -1887,6 +1889,8 @@ def is_likely_command(text: str):
         "pusc ",
         "znajdz na spotify",
         "zapisz notatke",
+        "zapisz mi",
+        "dodaj do notatek",
         "dodaj notatke",
         "utworz notatke",
         "zanotuj",
@@ -2300,14 +2304,26 @@ async def process_text(request: ProcessTextRequest, _authorized: None = Depends(
             or parameters.get("text")
             or ""
         ).strip()
-        needs_title = bool(command.get("needs_title") or parameters.get("needs_title")) or not title
+        content = normalize_note_content(content)
+        title = title or generate_note_title(content)
+        needs_title = not content
+
+        if not content:
+            return {
+                "status": "need_input",
+                "response": "Jasne — co mam zapisać w notatce?",
+                "missing": "content",
+                "draft": {},
+                "command": command,
+                "device_id": device_id,
+            }
 
         if needs_title:
             return {
                 "status": "need_input",
                 "response": "Podaj tytuł notatki.",
-                "missing": "title",
-                "draft": {"content": content},
+                "missing": "content",
+                "draft": {},
                 "command": command,
                 "device_id": device_id,
             }

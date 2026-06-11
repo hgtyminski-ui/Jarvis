@@ -3228,7 +3228,8 @@ class JarvisGUI(ctk.CTk):
             self.pending_note_content = None
             if result == "saved":
                 self.after(0, self.refresh_notes_list)
-                return False, f"{self.assistant_name}: Notatka zapisana.", "Notatka zapisana."
+                response = f"Zapisałem notatkę: {title or content.split('.')[0]}"
+                return False, f"{self.assistant_name}: {response}", response
 
             return False, f"{self.assistant_name}: Brakuje treści notatki.", None
 

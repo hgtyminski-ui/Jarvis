@@ -167,6 +167,9 @@ def handle_ai_answer(answer, assistant_name, config):
     if action == "create_note":
         content = data.get("content", "")
         title = data.get("title", "")
+        if not str(content or "").strip():
+            response = "Jasne — co mam zapisać w notatce?"
+            return JarvisResult(format_with_name(assistant_name, response), tts_text=response)
 
         try:
             result = create_note(content, title)
@@ -174,7 +177,8 @@ def handle_ai_answer(answer, assistant_name, config):
             return JarvisResult(f"{format_with_name(assistant_name, 'Nie udalo sie zapisac notatki.')}\nBlad: {e}")
 
         if result == "saved":
-            return JarvisResult(format_with_name(assistant_name, "Notatka zapisana."))
+            response = f"Zapisałem notatkę: {title or content.split('.')[0]}"
+            return JarvisResult(format_with_name(assistant_name, response), tts_text=response)
         return JarvisResult(format_with_name(assistant_name, "Brakuje tresci notatki."))
 
     return JarvisResult(format_with_name(assistant_name, "Nie rozumiem akcji zwroconej przez AI."))
@@ -225,7 +229,7 @@ def process_user_text(user_input, assistant_name, client, config, messages, pend
 
         pending_note.clear()
         if result == "saved":
-            response = "Notatka zapisana."
+            response = f"Zapisałem notatkę: {title}"
             return JarvisResult(format_with_name(assistant_name, response), tts_text=response)
 
         return JarvisResult(format_with_name(assistant_name, "Brakuje tresci notatki."))
@@ -245,7 +249,8 @@ def process_user_text(user_input, assistant_name, client, config, messages, pend
         if local_action.get("action") == "create_note" and local_action.get("needs_title"):
             content = local_action.get("content", "").strip()
             if not content:
-                return JarvisResult(format_with_name(assistant_name, "Brakuje tresci notatki."))
+                response = "Jasne — co mam zapisać w notatce?"
+                return JarvisResult(format_with_name(assistant_name, response), tts_text=response)
 
             if pending_note is not None:
                 pending_note["content"] = content
